@@ -4,15 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-internment = "0.8"
+internment = { version = "0.8", features = ["serde"]}
 logos = { version = "0.15"}
-codespan = "0.12"
-codespan-reporting = "0.12"
 serde = { version = "1", features = ["derive"] }
 ron = "0.8"
+lalrpop-util = "0.22"
+ariadne = "0.5.1"
+thiserror = "2.0.12"
 
 [build-dependencies]
-lalrpop = "0.22"
+lalrpop = { version = "0.22.2", default-features = false }
 
 [dev-dependencies]
 insta = {version = "1.43.1", features = ["ron"]}

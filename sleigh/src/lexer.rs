@@ -269,7 +269,9 @@ impl<'input> Lexer<'input> {
         match token {
             NormalToken::Comment => return self.next(),
             NormalToken::Error => {
-                return Some(Err(ParseError::Lexical(LexicalError::Generic(span))))
+                return Some(Err(ParseError::Lexical(LexicalError::Generic(
+                    span.start, span.end,
+                ))))
             }
             _ => (),
         };
@@ -284,7 +286,9 @@ impl<'input> Lexer<'input> {
     ) -> Option<Result<SpannedToken<'input>, ParseError>> {
         match token {
             DisplayToken::Error => {
-                return Some(Err(ParseError::Lexical(LexicalError::Generic(span))))
+                return Some(Err(ParseError::Lexical(LexicalError::Generic(
+                    span.start, span.end,
+                ))))
             }
             _ => (),
         };
