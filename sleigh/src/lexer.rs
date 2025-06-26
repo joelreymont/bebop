@@ -1,3 +1,4 @@
+use super::error::{LexicalError, ParseError};
 use logos::Logos;
 use serde::Serialize;
 use std::num::ParseIntError;
@@ -7,17 +8,18 @@ pub fn parse_number(base: u32, slice: &str) -> Result<usize, ParseIntError> {
     usize::from_str_radix(slice, base)
 }
 
-#[derive(Serialize, Logos, Debug, PartialEq, Clone)]
-#[regex("((\r\n)+|[ \t\n]+)", logos::skip)]
+#[derive(Serialize, Debug, PartialEq, Clone, Logos)]
 pub enum NormalToken<'input> {
     // Forbid lone carriage returns
     #[regex("\r[^\n]")]
     Error,
+    #[regex("((\r\n)+|[ \t\n]+)", logos::skip)]
+    Ignored,
     #[regex("[0-9]+", |lex| parse_number(10, lex.slice()).ok())]
     DecInt(usize),
-    #[regex("0[bB][0-1]+", |lex| parse_number(2, lex.slice()).ok())]
+    #[regex("0[bB][01]+", |lex| parse_number(2, &lex.slice()[2..]).ok())]
     BinInt(usize),
-    #[regex("0[xX][a-fA-F0-9]+", |lex| parse_number(2, lex.slice()).ok())]
+    #[regex("0[xX][a-fA-F0-9]+", |lex| parse_number(16, &lex.slice()[2..]).ok())]
     HexInt(usize),
     #[regex("[a-zA-Z_\\.]([a-zA-Z_\\.]|[0-9])*")]
     Ident(&'input str),
@@ -105,37 +107,37 @@ pub enum NormalToken<'input> {
     LE,
     #[token(">=")]
     GE,
-    #[token("\\|\\|")]
+    #[token("||")]
     Or,
     #[token("&&")]
     And,
-    #[token("\\^\\^")]
+    #[token("^^")]
     Xor,
-    #[token("\\|")]
+    #[token("|")]
     Pipe,
     #[token("&")]
     Ampersand,
-    #[token("\\^")]
+    #[token("^")]
     Caret,
     #[token("<<")]
     LShift,
     #[token(">>")]
     RShift,
-    #[token("\\+")]
+    #[token("+")]
     Plus,
-    #[token("\\-")]
+    #[token("-")]
     Minus,
-    #[token("\\*")]
+    #[token("*")]
     Star,
     #[token("/")]
     Slash,
     #[token("%")]
     Percent,
-    #[token("\\$or")]
+    #[token("$or")]
     SpecOr,
-    #[token("\\$and")]
+    #[token("$and")]
     SpecAnd,
-    #[token("\\$xor")]
+    #[token("$xor")]
     SpecXor,
     #[token("f<")]
     FLT,
@@ -149,11 +151,11 @@ pub enum NormalToken<'input> {
     FLE,
     #[token("f>=")]
     FGE,
-    #[token("f\\+")]
+    #[token("f+")]
     FPlus,
     #[token("f-")]
     FMinus,
-    #[token("f\\*")]
+    #[token("f*")]
     FMul,
     #[token("f/")]
     FDiv,
@@ -178,21 +180,20 @@ pub enum NormalToken<'input> {
 }
 
 #[derive(Serialize, Logos, Debug, PartialEq, Clone)]
-#[regex("((\r\n)+|[\t\n]+)", logos::skip)]
 pub enum DisplayToken<'input> {
     // Forbid lone carriage returns
     #[regex("\r[^\n]")]
     Error,
     #[regex("[a-zA-Z_\\.]([a-zA-Z_\\.]|[0-9])*")]
     Ident(&'input str),
-    #[regex("[^ a-zA-Z_\\.][^ ]*")]
+    #[regex("[^ a-zA-Z_\\.\\^][^ \\^]*")]
     Text(&'input str),
+    #[token("^")]
+    Caret,
     #[token(" ")]
     Space,
-    #[token("\\^")]
-    Caret,
-    #[token("is", ignore(case))]
-    End,
+    #[regex("((\r\n)+|[\t\n]+)", logos::skip, priority = 10)]
+    Ignored,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
@@ -264,12 +265,11 @@ impl<'input> Lexer<'input> {
         &mut self,
         span: Range<usize>,
         token: NormalToken<'input>,
-    ) -> Option<Result<SpannedToken<'input>, () /*ParseError*/>> {
+    ) -> Option<Result<SpannedToken<'input>, ParseError>> {
         match token {
             NormalToken::Comment => return self.next(),
             NormalToken::Error => {
-                // return Some(Err(ParseError::Lexical(LexicalError::Generic(span))))
-                return Some(Err(()));
+                return Some(Err(ParseError::Lexical(LexicalError::Generic(span))))
             }
             _ => (),
         };
@@ -281,11 +281,10 @@ impl<'input> Lexer<'input> {
         &mut self,
         span: Range<usize>,
         token: DisplayToken<'input>,
-    ) -> Option<Result<SpannedToken<'input>, () /*ParseError*/>> {
+    ) -> Option<Result<SpannedToken<'input>, ParseError>> {
         match token {
             DisplayToken::Error => {
-                // return Some(Err(ParseError::Lexical(LexicalError::Generic(span))))
-                return Some(Err(()));
+                return Some(Err(ParseError::Lexical(LexicalError::Generic(span))))
             }
             _ => (),
         };
@@ -295,7 +294,7 @@ impl<'input> Lexer<'input> {
 }
 
 impl<'input> Iterator for Lexer<'input> {
-    type Item = Result<SpannedToken<'input>, ()>; /*ParseError>*/
+    type Item = Result<SpannedToken<'input>, ParseError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.lexer.as_mut().unwrap() {
