@@ -6,3 +6,8 @@ edition = "2024"
 [dependencies]
 internment = "*"
 logos = "*"
+serde = { version = "*", features = ["derive"] }
+serde_yaml = "*"
+
+[dev-dependencies]
+insta = {version = "1.43.1", features = ["yaml"]}

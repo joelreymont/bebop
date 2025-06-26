@@ -1,4 +1,5 @@
 use logos::Logos;
+use serde::Serialize;
 use std::num::ParseIntError;
 use std::ops::Range;
 
@@ -6,7 +7,7 @@ pub fn parse_number(base: u32, slice: &str) -> Result<usize, ParseIntError> {
     usize::from_str_radix(slice, base)
 }
 
-#[derive(Logos, Debug, PartialEq, Clone)]
+#[derive(Serialize, Logos, Debug, PartialEq, Clone)]
 #[regex("((\r\n)+|[ \t\n]+)", logos::skip)]
 pub enum NormalToken<'input> {
     // Forbid lone carriage returns
@@ -176,7 +177,7 @@ pub enum NormalToken<'input> {
     Comment,
 }
 
-#[derive(Logos, Debug, PartialEq, Clone)]
+#[derive(Serialize, Logos, Debug, PartialEq, Clone)]
 #[regex("((\r\n)+|[\t\n]+)", logos::skip)]
 pub enum DisplayToken<'input> {
     // Forbid lone carriage returns
@@ -194,7 +195,7 @@ pub enum DisplayToken<'input> {
     End,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Serialize, Debug, PartialEq, Clone)]
 pub enum Token<'input> {
     Normal(NormalToken<'input>),
     Display(DisplayToken<'input>),
