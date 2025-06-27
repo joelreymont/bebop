@@ -162,9 +162,9 @@ fn test_display() -> Result<(), ParseError> {
       (0, Display(Ident("foo")), 3),
       (3, Display(Caret), 4),
       (4, Display(Text("[Baz],")), 10),
-      (10, Display(Space), 11),
+      (10, Display(Whitespace), 11),
       (11, Display(Ident("bar")), 14),
-      (14, Display(Space), 15),
+      (14, Display(Whitespace), 15),
       (15, Display(Ident("bar1")), 19),
     ]
     "#);

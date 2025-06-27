@@ -27,8 +27,6 @@ pub enum NormalToken<'input> {
     Is,
     #[token("if", ignore(case))]
     If,
-    #[token("register", ignore(case))]
-    Register,
     #[token("alignment", ignore(case))]
     Alignment,
     #[token("attach", ignore(case))]
@@ -63,12 +61,28 @@ pub enum NormalToken<'input> {
     PCodeOp,
     #[token("return", ignore(case))]
     Return,
+    #[token("register", ignore(case))]
+    Register,
+    #[token("ram_space", ignore(case))]
+    RamSpace,
+    #[token("rom_space", ignore(case))]
+    RomSpace,
+    #[token("register_space", ignore(case))]
+    RegisterSpace,
     #[token("signed", ignore(case))]
     Signed,
+    #[token("size", ignore(case))]
+    Size,
+    #[token("space", ignore(case))]
+    Space,
     #[token("token", ignore(case))]
     Token,
+    #[token("type", ignore(case))]
+    Type,
     #[token("unimpl", ignore(case))]
     Unimpl,
+    #[token("wordsize", ignore(case))]
+    WordSize,
     #[token("...")]
     Ellipsis,
     #[token("{")]
@@ -191,7 +205,7 @@ pub enum DisplayToken<'input> {
     #[token("^")]
     Caret,
     #[token(" ")]
-    Space,
+    Whitespace,
     #[regex("((\r\n)+|[\t\n]+)", logos::skip, priority = 10)]
     Ignored,
 }

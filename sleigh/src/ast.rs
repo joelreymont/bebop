@@ -1,4 +1,4 @@
-use crate::meta::Loc;
+use crate::meta::*;
 use internment::Intern;
 use serde::Serialize;
 use std::{fmt, ops::Deref};
@@ -94,12 +94,39 @@ pub struct Field {
 }
 
 #[derive(Copy, Clone, PartialEq, Serialize)]
+pub enum SpaceMod {
+    Size(usize),
+    WordSize(usize),
+    IsDefault,
+}
+
+#[derive(Copy, Clone, PartialEq, Serialize)]
 pub struct Space {
     pub id: Loc<Ident>,
     pub kind: Loc<SpaceKind>,
-    size: Loc<usize>,
-    word_size: usize,
-    is_default: bool,
+    pub size: usize,
+    pub word_size: usize,
+    pub is_default: bool,
+}
+
+impl Space {
+    pub fn new(id: Loc<Ident>, kind: Loc<SpaceKind>, mods: Vec<SpaceMod>) -> Self {
+        let space = Space {
+            id,
+            kind,
+            size: 0,
+            word_size: 1,
+            is_default: true,
+        };
+        mods.into_iter().fold(space, |mut space, m| {
+            match m {
+                SpaceMod::Size(n) => space.size = n,
+                SpaceMod::WordSize(n) => space.word_size = n,
+                SpaceMod::IsDefault => space.is_default = true,
+            }
+            space
+        })
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Serialize)]

@@ -5,7 +5,6 @@ use super::{
 	meta::*,
 };
 
-
 grammar<'input>(file_id: FileId);
 
 /*
@@ -27,25 +26,63 @@ grammar<'input>(file_id: FileId);
 Located<T>: Loc<T> = <left: @L> <node: T> <right: @R> =>
 	Loc::new(node, Span::new(file_id, left..right));
 
-pub Definitions: Vec<Definition> = <Definition+> => <>;
-
-pub Definition: Definition = {
-	<DefinitionSemi> ";" => <>,
+pub Ident: Loc<Ident> = {
+	Located<"ident"> => <>.map(Ident::new),
 };
 
-pub DefinitionSemi: Definition = {
-	Located<EndianDefinition> => Definition::Endian(<>)
+pub Defs: Vec<Definition> = <Def+> => <>;
+
+pub Def: Definition = {
+	<DefSemi> ";" => <>,
 };
 
-pub EndianDefinition: Endian = {
+pub DefSemi: Definition = {
+	Located<EndianDef> => Definition::Endian(<>),
+	Located<AlignmentDef> => Definition::Alignment(<>),
+	Located<SpaceDef> => Definition::Space(<>),
+};
+
+pub EndianDef: Endian = {
 	"define" "endian" "=" <Endian> => <>
 };
 
 pub Endian: Endian = {
 	"big" => Endian::Big,
-	"little" => Endian::Little
+	"little" => Endian::Little,
 }
 
+pub AlignmentDef: usize = {
+	"define" "alignment" "=" <Number> => <>
+};
+
+pub Number: usize = {
+	"dec int" => <>,
+	"hex int" => <>,
+	"bin int" => <>,
+};
+
+pub SpaceDef: Space = {
+	"define" "space" <id:Ident> <kind:SpaceKind> <mods:SpaceMod+> =>
+		Space::new(id, kind, mods),
+	"define" "space" <id:Located<"register">> <kind:SpaceKind> <mods:SpaceMod+> =>
+		Space::new(id.map(|_| Ident::new("register")), kind, mods),
+};
+
+pub SpaceKind: Loc<SpaceKind> = {
+  "type" "=" <Located<space_kind>> => <>,
+};
+
+space_kind: SpaceKind = {
+	"rom space" => SpaceKind::Rom,
+	"ram space" => SpaceKind::Ram,
+	"register space" => SpaceKind::Register,
+};
+
+pub SpaceMod: SpaceMod = {
+	"size" "=" <Number> => SpaceMod::Size(<>),
+	"word size" "=" <Number> => SpaceMod::WordSize(<>),
+	"default" => SpaceMod::IsDefault,
+};
 /*
 
 definition:
@@ -411,93 +448,92 @@ extern {
 	type Error = ParseError;
 
 	enum Token<'input> {
-	  /*
     "dec int" => Token::Normal(NormalToken::DecInt(<usize>)),
     "bin int" => Token::Normal(NormalToken::BinInt(<usize>)),
     "hex int" => Token::Normal(NormalToken::HexInt(<usize>)),
     "ident" => Token::Normal(NormalToken::Ident(<&'input str>)),
-    "is" => Token::Normal(NormalToken::Is),
-    "if" => Token::Normal(NormalToken::If),
+    // "is" => Token::Normal(NormalToken::Is),
+    // "if" => Token::Normal(NormalToken::If),
     "register" => Token::Normal(NormalToken::Register),
+    "register space" => Token::Normal(NormalToken::RegisterSpace),
     "alignment" => Token::Normal(NormalToken::Alignment),
-    "attach" => Token::Normal(NormalToken::Attach),
-		*/
+    // "attach" => Token::Normal(NormalToken::Attach),
     "big" => Token::Normal(NormalToken::Big),
-    // "default" => Token::Default,
+    "default" => Token::Normal(NormalToken::Default),
     "little" => Token::Normal(NormalToken::Little),
-		/*
-    "build" => Token::Build,
-    "call" => Token::Call,
-    "dec" => Token::Dec,
-		*/
+    // "build" => Token::Build,
+    // "call" => Token::Call,
+    // "dec" => Token::Dec,
     "define" => Token::Normal(NormalToken::Define),
     "endian" => Token::Normal(NormalToken::Endian),
-		/*
-    "export" => Token::Export,
-    "goto" => Token::Goto,
-    "hex" => Token::Hex,
-    "local" => Token::Local,
-    "macro" => Token::Macro,
-    "pcodeop" => Token::PCodeOp,
-    "return" => Token::Return,
-    "signed" => Token::Signed,
-    "token" => Token::Token,
-    "unimpl" => Token::Unimpl,
-    "..." => Token::Ellipsis,
-    "{" => Token::LBrace,
-    "}" => Token::RBrace,
-    "[" => Token::LBracket,
-    "]" => Token::RBracket,
-    "(" => Token::LParen,
-    ")" => Token::RParen,
-    ":" => Token::Colon,
-    "," => Token::Comma,
-    "!" => Token::Bang,
-    "~" => Token::Tilde,
-		*/
+  //   "export" => Token::Export,
+  //   "goto" => Token::Goto,
+  //   "hex" => Token::Hex,
+  //   "local" => Token::Local,
+  //   "macro" => Token::Macro,
+  //   "pcodeop" => Token::PCodeOp,
+		"ram space" =>  Token::Normal(NormalToken::RamSpace),
+		"rom space" =>  Token::Normal(NormalToken::RomSpace),
+  //   "return" => Token::Return,
+  //   "signed" => Token::Signed,
+	"size" => Token::Normal(NormalToken::Size),
+	"space" => Token::Normal(NormalToken::Space),
+    //"token" => Token::Token,
+    "type" => Token::Normal(NormalToken::Type),
+    //"unimpl" => Token::Unimpl,
+	"word size" => Token::Normal(NormalToken::WordSize),
+    // "..." => Token::Ellipsis,
+    // "{" => Token::LBrace,
+    // "}" => Token::RBrace,
+    // "[" => Token::LBracket,
+    // "]" => Token::RBracket,
+    // "(" => Token::LParen,
+    // ")" => Token::RParen,
+    // ":" => Token::Colon,
+    // "," => Token::Comma,
+    // "!" => Token::Bang,
+    // "~" => Token::Tilde,
     ";" => Token::Normal(NormalToken::Semi),
     "=" => Token::Normal(NormalToken::Assign),
-		/*
-    "<" => Token::LT,
-    ">" => Token::GT,
-    "==" => Token::EQ,
-    "!=" => Token::NE,
-    "<=" => Token::LE,
-    ">=" => Token::GE,
-    "||" => Token::Or,
-    "&&" => Token::And,
-    "^^" => Token::Xor,
-    "|" => Token::Pipe,
-    "&" => Token::Ampersand,
-    "^" => Token::Caret,
-    "<<" => Token::LShift,
-    ">>" => Token::RShift,
-    "+" => Token::Plus,
-    "-" => Token::Minus,
-    "*" => Token::Star,
-    "/" => Token::Slash,
-    "% "=> Token::Percent,
-    "$or" => Token::SpecOr,
-    "$and" => Token::SpecAnd,
-    "$xor" => Token::SpecXor,
-    "f<" => Token::FLT,
-    "f>" => Token::FGT,
-    "f==" => Token::FEQ,
-    "f!=" => Token::FNE,
-    "f<=" => Token::FLE,
-    "f>=" => Token::FGE,
-    "f+" => Token::FPlus,
-    "f-" => Token::FMinus,
-    "f*" => Token::FMul,
-    "f/" => Token::FDiv,
-    "s<" => Token::SLT,
-    "s>" => Token::SGT,
-    "s<=" => Token::SLE,
-    "s>=" => Token::SGE,
-    "s<<" => Token::SLShift,
-    "s>>" => Token::SRShift,
-    "s/" => Token::SDiv,
-    "s%" => Token::SMod,
-		*/
+    // "<" => Token::LT,
+    // ">" => Token::GT,
+    // "==" => Token::EQ,
+    // "!=" => Token::NE,
+    // "<=" => Token::LE,
+    // ">=" => Token::GE,
+    // "||" => Token::Or,
+    // "&&" => Token::And,
+    // "^^" => Token::Xor,
+    // "|" => Token::Pipe,
+    // "&" => Token::Ampersand,
+    // "^" => Token::Caret,
+    // "<<" => Token::LShift,
+    // ">>" => Token::RShift,
+    // "+" => Token::Plus,
+    // "-" => Token::Minus,
+    // "*" => Token::Star,
+    // "/" => Token::Slash,
+    // "% "=> Token::Percent,
+    // "$or" => Token::SpecOr,
+    // "$and" => Token::SpecAnd,
+    // "$xor" => Token::SpecXor,
+    // "f<" => Token::FLT,
+    // "f>" => Token::FGT,
+    // "f==" => Token::FEQ,
+    // "f!=" => Token::FNE,
+    // "f<=" => Token::FLE,
+    // "f>=" => Token::FGE,
+    // "f+" => Token::FPlus,
+    // "f-" => Token::FMinus,
+    // "f*" => Token::FMul,
+    // "f/" => Token::FDiv,
+    // "s<" => Token::SLT,
+    // "s>" => Token::SGT,
+    // "s<=" => Token::SLE,
+    // "s>=" => Token::SGE,
+    // "s<<" => Token::SLShift,
+    // "s>>" => Token::SRShift,
+    // "s/" => Token::SDiv,
+    // "s%" => Token::SMod,
 	}
 }
