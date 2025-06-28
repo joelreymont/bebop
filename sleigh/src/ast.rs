@@ -35,17 +35,23 @@ impl Deref for Ident {
     }
 }
 
-pub struct AST {
-    pub pool: ExprPool,
-    pub definitions: Vec<Definition>,
+pub struct Context {
+    expr_pool: ExprPool,
 }
 
-impl AST {
+impl Context {
     pub fn new() -> Self {
         Self {
-            pool: ExprPool::default(),
-            definitions: Vec::new(),
+            expr_pool: ExprPool::default(),
         }
+    }
+
+    pub fn add(&mut self, expr: Expr) -> ExprRef {
+        self.expr_pool.add(expr)
+    }
+
+    pub fn add_many(&mut self, v: Vec<Expr>) -> Vec<ExprRef> {
+        v.into_iter().map(|x| self.add(x)).collect::<Vec<_>>()
     }
 }
 
@@ -199,44 +205,45 @@ pub struct VarnodeAttach {
 
 #[derive(Clone, PartialEq, Serialize)]
 pub struct Constructor {
-    id: Ident,
-    mnemonic: Vec<DisplayPiece>,
-    output: Vec<DisplayPiece>,
-    pattern: Option<Expr>,
-    context: Option<ConstructorContext>,
-    body: Vec<ExprRef>,
+    pub id: Loc<Ident>,
+    pub display: Display,
+    pub pattern: ExprRef,
+    pub context: Vec<ExprRef>,
+    pub body: Vec<ExprRef>,
+}
+
+#[derive(Clone, PartialEq, Serialize)]
+pub struct Display {
+    pub mnemonic: Vec<DisplayPiece>,
+    pub output: Vec<DisplayPiece>,
 }
 
 #[derive(Copy, Clone, PartialEq, Serialize)]
 pub enum DisplayPiece {
     Id(Loc<Ident>),
     Text(Ident),
-}
-
-#[derive(Clone, PartialEq, Serialize)]
-pub struct ConstructorContext {
-    body: Vec<ExprRef>,
+    Caret,
+    Space,
 }
 
 #[derive(Clone, PartialEq, Serialize)]
 pub struct Macro {
-    id: Loc<Ident>,
-    args: Vec<Loc<Ident>>,
-    body: Vec<ExprRef>,
+    pub id: Loc<Ident>,
+    pub args: Vec<Loc<Ident>>,
+    pub body: Vec<ExprRef>,
 }
 
-#[derive(Debug, Clone, PartialEq, Copy, Serialize)]
+#[derive(Copy, Clone, PartialEq, Serialize, Debug)]
 pub struct ExprRef(usize);
-
 pub struct ExprPool(Vec<Expr>);
 
 impl ExprPool {
     fn default() -> Self {
-        Self(Vec::with_capacity(100_000_000))
+        Self(Vec::with_capacity(10000))
     }
 
     pub fn get(&self, expr: ExprRef) -> &Expr {
-        &self.0[expr.0 as usize]
+        &self.0[expr.0]
     }
 
     pub fn add(&mut self, expr: Expr) -> ExprRef {
@@ -249,7 +256,7 @@ impl ExprPool {
 #[derive(Clone, PartialEq, Serialize)]
 pub enum Expr {
     Binary {
-        op: Loc<BinaryOp>,
+        op: BinaryOp,
         lhs: ExprRef,
         rhs: ExprRef,
     },
@@ -262,16 +269,14 @@ pub enum Expr {
         id: Loc<Ident>,
         args: Vec<ExprRef>,
     },
-    Id(Loc<Ident>),
-    Int(Loc<usize>),
     BitRange {
         id: Loc<Ident>,
-        start_bit: Loc<usize>,
-        width: Loc<usize>,
+        start_bit: usize,
+        width: usize,
     },
     Sized {
         expr: ExprRef,
-        size: Loc<usize>,
+        size: usize,
     },
     Pointer {
         expr: ExprRef,
@@ -281,7 +286,6 @@ pub enum Expr {
         lhs: ExprRef,
         rhs: ExprRef,
     },
-    Build(Loc<Ident>),
     Goto(JumpTarget),
     Call(JumpTarget),
     Return(JumpTarget),
@@ -291,13 +295,16 @@ pub enum Expr {
     },
     Export(ExprRef),
     Label(Loc<Ident>),
-    Nothing,
+    Build(Loc<Ident>),
+    Id(Loc<Ident>),
+    Int(usize),
+    Unit,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum JumpTarget {
     Fixed {
-        address: Loc<usize>,
+        address: usize,
         space: Option<Loc<Ident>>,
     },
     Direct(Loc<Ident>),
@@ -309,15 +316,20 @@ pub enum JumpTarget {
 pub enum UnaryOp {
     Not,
     Neg,
+    FloatNeg,
     Inv,
+    AlignLeft,
+    AlignRight,
 }
 
 impl fmt::Display for UnaryOp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Neg => write!(f, "-"),
+            Self::FloatNeg => write!(f, "f-"),
             Self::Not => write!(f, "!"),
             Self::Inv => write!(f, "~"),
+            Self::AlignLeft | Self::AlignRight => write!(f, "..."),
         }
     }
 }
@@ -361,6 +373,8 @@ pub enum BinaryOp {
     SignedMod,
     FloatMul,
     FloatDiv,
+    //
+    Join,
 }
 
 impl fmt::Display for BinaryOp {
@@ -403,6 +417,7 @@ impl fmt::Display for BinaryOp {
             Self::SignedMod => write!(f, "s%"),
             Self::FloatMul => write!(f, "f*"),
             Self::FloatDiv => write!(f, "f/"),
+            Self::Join => write!(f, ";"),
         }
     }
 }

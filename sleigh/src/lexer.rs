@@ -206,6 +206,8 @@ pub enum DisplayToken<'input> {
     Ident(&'input str),
     #[regex("[^ a-zA-Z_\\.\\^][^ \\^]*")]
     Text(&'input str),
+    #[token("is")]
+    Is,
     #[token("^")]
     Caret,
     #[token(" ")]
@@ -230,7 +232,6 @@ pub enum ModalLexer<'input> {
     Display(DisplayLexer<'input>),
 }
 
-// Wrap the `next()` function of the underlying lexer.
 impl<'input> Iterator for ModalLexer<'input> {
     type Item = Result<Token<'input>, ()>;
 
@@ -286,6 +287,7 @@ impl<'input> Lexer<'input> {
     ) -> Option<Result<SpannedToken<'input>, ParseError>> {
         match token {
             NormalToken::Comment => return self.next(),
+            NormalToken::RBrace | NormalToken::Unimpl => self.switch_to_display(),
             NormalToken::Error => {
                 return Some(Err(ParseError::Lexical(LexicalError::Generic(
                     span.start, span.end,
@@ -303,6 +305,7 @@ impl<'input> Lexer<'input> {
         token: DisplayToken<'input>,
     ) -> Option<Result<SpannedToken<'input>, ParseError>> {
         match token {
+            DisplayToken::Is => self.switch_to_normal(),
             DisplayToken::Error => {
                 return Some(Err(ParseError::Lexical(LexicalError::Generic(
                     span.start, span.end,

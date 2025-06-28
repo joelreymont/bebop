@@ -5,26 +5,25 @@ use super::{
 	meta::*,
 };
 
-grammar<'input>(file_id: FileId);
+grammar<'input>(file_id: FileId, ctx: &mut Context);
 
-/*
-%left PIPE
-%left AMPERSAND
-%left OR SPEC_OR
-%left CARET XOR SPEC_XOR
-%left AND SPEC_AND 
-%nonassoc EQUAL NOT_EQUAL FLOAT_EQUAL FLOAT_NOT_EQUAL
-%nonassoc LESS_THAN GREATER_THAN LESS_EQUAL GREATER_EQUAL
-          SIGNED_LESS_THAN SIGNED_GREATER_THAN SIGNED_LESS_EQUAL
-		  SIGNED_GREATER_EQUAL FLOAT_LESS_THAN FLOAT_GREATER_THAN
-		  FLOAT_LESS_EQUAL FLOAT_GREATER_EQUAL
-%left SHIFT_LEFT SHIFT_RIGHT SIGNED_SHIFT_RIGHT SIGNED_SHIFT_LEFT
-%left PLUS MINUS FLOAT_MINUS FLOAT_PLUS
-%left STAR SLASH PERCENT FLOAT_DIV FLOAT_MUL SIGNED_DIV SIGNED_MOD
-%nonassoc UNARY
-*/
 Located<T>: Loc<T> = <left: @L> <node: T> <right: @R> =>
 	Loc::new(node, Span::new(file_id, left..right));
+
+Sep<T, S>: Vec<T> = {
+    <mut v:(<T> S)*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            v.push(e);
+            v
+        }
+    }
+};
+
+Infix<L, Op, R>: Expr = {
+    <lhs:L> <op:Op> <rhs:R> => 
+			Expr::Binary { op, lhs: ctx.add(lhs), rhs: ctx.add(rhs) },
+};
 
 pub Ident: Loc<Ident> = {
 	Located<"ident"> => <>.map(Ident::new),
@@ -39,6 +38,7 @@ pub Def: Definition = {
 	Located<VarnodeDef> => Definition::Varnode(<>),
 	Located<TokenDef> => Definition::Token(<>),
 	Located<VarnodeAttachDef> => Definition::VarnodeAttach(<>),
+	Located<MacroDef> => Definition::Macro(<>)
 };
 
 pub EndianDef: Endian = {
@@ -113,303 +113,381 @@ pub VarnodeAttachDef: VarnodeAttach = {
 		VarnodeAttach { fields, registers }
 };
 
-/*
-definition_semi:
-	| varnode_attach_definition { Definition.Varnode_attach $1 }
-	| pcodeop_definition        { Definition.Pcode_op $1 }
+pub Constructor: Constructor = {
+	<id:Ident> ":" <display:Display> <pat:Pattern>
+		<context:ConstructorContext> <body:ConstructorBody> => {
+			let pattern = ctx.add(pat);
+			let context = ctx.add_many(context);
+			let body = ctx.add_many(body);
+			Constructor { id, display, pattern, context, body }
+	  }
+};
 
-varnode_attach_definition:
-	varnode_attach_start KEY_VARIABLES LBRACKET id+ RBRACKET LBRACKET id+ RBRACKET
-		{ Varnode_attach.make ~pos:(Position.position $1) ~fields:$4 ~registers:$7 }
+pub Display: Display = {
+	<mnemonic:Mnemonic> <output:Output> => Display { mnemonic, output },
+};
 
-varnode_attach_start:
-	KEY_ATTACH { Position.with_poss $startpos $endpos () }
+pub Mnemonic: Vec<DisplayPiece> = {
+	<MnemonicPiece*> " " => <>
+};
 
-pcodeop_definition:
-	KEY_DEFINE KEY_PCODEOP id { $3 }
+pub Output: Vec<DisplayPiece> = {
+	<OutputPiece*> "is" => <>
+};
 
-constructor:
-	| id midrule(display_lexer_on) COLON display pattern context constructor_body
-		{ Constructor.{id = $1; display = $4; pattern = $5; context = $6; body = $7} }
-	| COLON midrule(display_lexer_on) id display pattern context constructor_body
-		{ Constructor.{id = $3; display = $4; pattern = $5; context = $6; body = $7} }
+pub MnemonicPiece: DisplayPiece = {
+	"caret" => DisplayPiece::Caret,
+	<Ident> => DisplayPiece::Id(<>),
+	<"text"> => DisplayPiece::Text(Ident::new(<>)),
+}
 
-display:
-	mnemonic output { Display.{mnemonic = $1; output = $2} }
+pub OutputPiece: DisplayPiece = {
+	"caret" => DisplayPiece::Caret,
+	" " => DisplayPiece::Space,
+	<Ident> => DisplayPiece::Id(<>),
+	<"text"> => DisplayPiece::Text(Ident::new(<>)),
+}
 
-mnemonic:
-	display_piece* SPACE { $1 }
+//
+// Bit pattern
+// 
 
-output:
-	| output_piece* midrule(display_lexer_off) RES_IS { $1 }
+pub Pattern: Expr = {
+  #[precedence(level="0")] 
+	"..." <PatAtomic> =>
+		Expr::Unary { op: UnaryOp::AlignRight, rhs: ctx.add(<>) },
+	<PatAtomic> "..." =>
+		Expr::Unary { op: UnaryOp::AlignLeft, rhs: ctx.add(<>) },
+	PatAtomic,
+  #[precedence(level="1")] #[assoc(side="left")]
+	Infix<Pattern, OpPatAnd, Pattern>,	
+  #[precedence(level="2")] #[assoc(side="left")]
+	Infix<Pattern, OpPatSeq, Pattern>,	
+  #[precedence(level="2")] #[assoc(side="left")]
+	Infix<Pattern, OpPatOr, Pattern>,	
+};
 
-display_piece:
-	| CARET { Display.Caret }
-	| id    { Display.Id $1 }
-	| text  { Display.Text $1 }
+PatAtomic: Expr = {
+	<ExprIdent>,
+	<lhs:ExprIdent> <op:PatCondOp> <rhs:PatExpr> =>
+		Expr::Binary { op, lhs: ctx.add(lhs), rhs: ctx.add(rhs) },
+	"(" <Pattern> ")" => Expr::Paren(ctx.add(<>)),
+};
 
-output_piece:
-	| CARET { Display.Caret }
-	| SPACE { Display.Whitespace }
-	| id    { Display.Id $1 }
-	| text  { Display.Text $1 }
+OpPatOr: BinaryOp = "|" => BinaryOp::Or;
+OpPatSeq: BinaryOp = ";" => BinaryOp::Join;
+OpPatAnd: BinaryOp = "&" => BinaryOp::And;
 
-pattern:
-	separated_list(SEMI, pattern_expr) { $1 }
+PatCondOp: BinaryOp = {
+	"=" => BinaryOp::Equal,
+	"!=" => BinaryOp::NotEqual,
+	"<" => BinaryOp::Less,
+	">" => BinaryOp::Greater,
+	"<=" => BinaryOp::LessEqual,
+	">=" => BinaryOp::GreaterEqual,
+};
 
-context:
-	| LBRACKET context_statement* RBRACKET { $2 }
-	|                                      { [] }
+pub PatExpr: Expr = {
+  #[precedence(level="0")] 
+	FunCall,
+	PatExprTerm,
+  #[precedence(level="1")] 
+	<op:PatExprOpUnary> <expr:PatExpr> => Expr::Unary { op, rhs: ctx.add(expr) },
+  #[precedence(level="2")] #[assoc(side="left")]
+	Infix<PatExpr, PatExprOpMul, PatExpr>,
+  #[precedence(level="3")] #[assoc(side="left")]
+	Infix<PatExpr, PatExprOpAdd, PatExpr>,
+  #[precedence(level="4")] #[assoc(side="left")]
+	Infix<PatExpr, PatExprOpShift, PatExpr>,
+  #[precedence(level="4")] #[assoc(side="left")]
+	Infix<PatExpr, PatExprOpAnd, PatExpr>,
+  #[precedence(level="5")] #[assoc(side="left")]
+	Infix<PatExpr, PatExprOpXor, PatExpr>,
+  #[precedence(level="6")] #[assoc(side="left")]
+	Infix<PatExpr, PatExprOpOr, PatExpr>,
+};
 
-constructor_body:
-	| LBRACE semantic_body RBRACE     { $2 }
-	|                      KEY_UNIMPL { [] }
+PatExprTerm: Expr = {
+	<ExprIdent>,
+	<ExprNumber>,
+	"(" <PatExpr> ")" => Expr::Paren(ctx.add(<>)),
+};
 
-context_statement: 
-	| assignment SEMI { $1 }
-	| funcall SEMI    { $1 }
+PatExprOpOr: BinaryOp = "$or" => BinaryOp::LogOr;
+PatExprOpXor: BinaryOp = "$xor" => BinaryOp::LogXor;
+PatExprOpAnd: BinaryOp = "$and" => BinaryOp::LogAnd;
 
-pattern_expr: 
-	| pattern_expr pattern_op pattern_expr { Pattern.Binary ($1, $2, $3) }
-	| ELLIPSIS pattern_atomic              { Pattern.Align_right $2 }
-	| pattern_atomic ELLIPSIS              { Pattern.Align_left $1 }
-	| pattern_atomic                       { $1 }
-	 
-%inline pattern_op:
-	| PIPE      { Pattern.OR }
-	| AMPERSAND { Pattern.AND }
+PatExprOpShift: BinaryOp = {
+	"<<" => BinaryOp::ShiftLeft,
+	">>" => BinaryOp::ShiftRight,
+};
 
-pattern_atomic:
-	| condition                  { Pattern.Constraint $1 }
-	| LPAREN pattern_expr RPAREN { Pattern.Paren $2 }
+PatExprOpAdd: BinaryOp = {
+	"+" => BinaryOp::Plus,
+	"-" => BinaryOp::Minus,
+};
 
-condition:
-	| id                             { Symbol $1 }
-	| id condition_op condition_expr { Condition ($1, $2, $3) }
+PatExprOpMul: BinaryOp = {
+	"*" => BinaryOp::Plus,
+	"/" => BinaryOp::Minus,
+};
 
-condition_expr:
-	| condition_expr condition_expr_op condition_expr    { Expr.Binary ($2, $1, $3) }
-	| condition_expr_unary_op condition_expr %prec UNARY { Expr.Unary ($1, $2) }
-	| id                                                 { Expr.Id $1 }
-	| constant                                           { Expr.Int $1 }
-	| LPAREN expr = condition_expr RPAREN                { Expr.Paren expr }
+PatExprOpUnary: UnaryOp = {
+	"-" => UnaryOp::Neg,
+	"~" => UnaryOp::Inv,
+};
 
-semantic_body:
-	statement* { $1 }
-	
-macro:
-	KEY_MACRO id LPAREN arg_names RPAREN macro_body
-		{ Macro.{id = $2; args = $4; body = $6} }
+//
+// Expr
+//
 
-macro_body:
-	| LBRACE semantic_body RBRACE { $2 }
+pub Expr: Expr = {
+  #[precedence(level="0")]
+	FunCall,
+	ExprTerm,	
+  #[precedence(level="1")] 
+	<op:OpUnary> <expr:Expr> => Expr::Unary { op, rhs: ctx.add(expr) },
+	SizedPointer<Expr>,
+  #[precedence(level="2")] #[assoc(side="left")]
+	Infix<Expr, OpMul, Expr>,
+  #[precedence(level="3")] #[assoc(side="left")]
+	Infix<Expr, OpAdd, Expr>,
+  #[precedence(level="4")] #[assoc(side="left")]
+	Infix<Expr, OpShift, Expr>,
+  #[precedence(level="5")] #[assoc(side="left")] 
+	Infix<Expr, OpComp, Expr>,
+  #[precedence(level="6")] #[assoc(side="left")]
+	Infix<Expr, OpEq, Expr>,
+  #[precedence(level="7")] #[assoc(side="left")]
+	Infix<Expr, OpAnd, Expr>,
+  #[precedence(level="8")] #[assoc(side="left")]
+	Infix<Expr, OpXor, Expr>,
+  #[precedence(level="9")] #[assoc(side="left")]
+	Infix<Expr, OpOr, Expr>,
+  #[precedence(level="10")] #[assoc(side="left")]
+	Infix<Expr, OpBoolAnd, Expr>,
+  #[precedence(level="11")] #[assoc(side="left")]
+	Infix<Expr, OpBoolOr, Expr>,
+};
 
-statement:
-	| label          { Statement.Label $1 }
-	| non_label SEMI { $1 }
-	
-non_label: 
-	| assignment  { $1 }
-	| declaration { $1 }
-	| funcall     { $1 }
-	| build       { $1 }
-	| goto        { $1 }
-	| branch      { $1 }
-	| call        { $1 }
-	| export      { $1 }
-	| return      { $1 }
+ExprTerm: Expr = {
+	ExprVarnode,
+	ExprBitRange,
+	"(" <Expr> ")" => Expr::Paren(ctx.add(<>)),
+};
 
-assignment:
-	| KEY_LOCAL lvalue ASSIGN expr { Statement.Assign ($2, $4) }
-	| lvalue ASSIGN expr           { Statement.Assign ($1, $3) }
+OpBoolOr: BinaryOp = "||" => BinaryOp::Or;
+OpBoolAnd: BinaryOp = {
+	"&&" => BinaryOp::And,
+	"^^" => BinaryOp::Xor,
+};
 
-declaration:
-	| KEY_LOCAL id COLON constant { Statement.Declare ($2, Some $4) }
-	| KEY_LOCAL id                { Statement.Declare ($2, None) }
+OpOr: BinaryOp = "|" => BinaryOp::LogOr;
+OpXor: BinaryOp = "^" => BinaryOp::LogXor;
+OpAnd: BinaryOp = "&" => BinaryOp::LogAnd;
 
-build:
-	| KEY_BUILD id { Statement.Build $2 }
+OpEq: BinaryOp = {
+	"==" => BinaryOp::Equal,
+	"!=" => BinaryOp::NotEqual,
+	"f==" => BinaryOp::FloatEqual,
+	"f!=" => BinaryOp::FloatNotEqual,
+};
 
-funcall:
-	| id LPAREN args RPAREN { Statement.Fun_call ($1, $3) }
+OpComp: BinaryOp = {
+	"<"	 => BinaryOp::Less,
+	">" => BinaryOp::Greater,
+	"<="	 => BinaryOp::LessEqual,
+	">=" => BinaryOp::GreaterEqual,
+	"s<"	 => BinaryOp::SignedLess,
+	"s>" => BinaryOp::SignedGreater,
+	"s<="	 => BinaryOp::SignedLessEqual,
+	"s>=" => BinaryOp::SignedGreaterEqual,
+	"f<"	 => BinaryOp::FloatLess,
+	"f>" => BinaryOp::FloatGreater,
+	"f<="	 => BinaryOp::FloatLessEqual,
+	"f>=" => BinaryOp::FloatGreaterEqual,
+};
 
-goto:
-	| KEY_GOTO jump_target { Statement.Goto $2 }
+OpShift: BinaryOp = {
+	"<<" => BinaryOp::ShiftLeft,
+	">>" => BinaryOp::ShiftRight,
+	"s>>" => BinaryOp::SignedShiftRight,
+}
 
-branch:
-	| RES_IF expr KEY_GOTO jump_target { Statement.Branch ($2, $4) }
+OpAdd: BinaryOp = {
+	"+" => BinaryOp::Plus,
+	"-" => BinaryOp::Minus,
+	"f+" => BinaryOp::FloatPlus,
+	"f-" => BinaryOp::FloatMinus,
+};
 
-call:
-	| KEY_CALL jump_target { Statement.Call $2 }
-	
-export:
-	| KEY_EXPORT sized_export { Statement.Export $2 }
-	| KEY_EXPORT varnode      { Statement.Export $2 }
+OpMul: BinaryOp = {
+	"*" => BinaryOp::Mul,
+	"/" => BinaryOp::Div,
+	"%"	=> BinaryOp::Mod,
+	"s/" => BinaryOp::SignedDiv,
+	"s%"	=> BinaryOp::SignedMod,
+	"f*" => BinaryOp::FloatMul,
+	"f/" => BinaryOp::FloatDiv,
+};
 
-return:
-	| KEY_RETURN LBRACKET jump_target RBRACKET { Statement.Return $3 }
+OpUnary: UnaryOp = {
+	"!" => UnaryOp::Not,
+	"~" => UnaryOp::Inv,
+	"-" => UnaryOp::Neg,
+	"f-" => UnaryOp::FloatNeg,
+};
 
-label:
-	| LESS_THAN id GREATER_THAN { $2 }
+//
+ 
+ConstructorContext: Vec<Expr> = {
+	"["	<ContextStatement+> "]" => <>
+};
 
-jump_target:
-	| constant LBRACKET id RBRACKET { Jump_target.Fixed ($1, Some $3) }
-	| constant                      { Jump_target.Fixed ($1, None) }
-	| id                            { Jump_target.Direct $1 }
-	| LBRACKET expr RBRACKET        { Jump_target.Indirect $2 }
-	| label                         { Jump_target.Label $1 }
+pub ContextStatement: Expr = {
+	<Assignment> ";" => <>,
+	<FunCall> ";" => <>,
+};
 
-lvalue:
-	| bitrange            { $1 }
-	| id COLON constant   { Expr.Sized (Expr.Id $1, $3) }
-	| id                  { Expr.Id $1 }
-	| sized_pointer(expr) { $1 }
-	
-expr:
-	| expr expr_op expr         { Expr.Binary ($2, $1, $3) }
-	| expr_unary_op expr_unary  { Expr.Unary ($1, $2) }
-	| sized_pointer(expr_unary) { $1 }
-	| expr_unary                { $1 }
+pub ConstructorBody: Vec<Expr> = {
+	"{"	<Statement+> "}" => <>,
+	"unimpl" => Vec::new(),
+};
 
-expr_unary:
-	| expr_funcall { $1 }
-	| expr_term    { $1 }
+pub MacroDef: Macro = {
+	"macro" <id:Ident> "(" <args:ArgNames> ")" "{" <body:Statement+> "}" =>
+		Macro { id, args, body: ctx.add_many(body) }
+};
 
-expr_term:
-	| LPAREN expr RPAREN { Expr.Paren $2 }
-	| varnode            { $1 }
-	| bitrange           { $1 }
+pub Statement: Expr = {
+	<Label> => Expr::Id(<>),
+	<Assignment> ";" => <>,
+	<Declaration> ";" => <>,
+	<FunCall> ";"	 => <>,
+	<Build> ";" => <>,
+	<Goto> ";" => <>,
+	<Branch> ";" => <>,
+	<Call> ";" => <>,
+	<Export> ";" => <>,
+	<Return> ";" => <>,
+};
 
-expr_funcall:
-	id LPAREN args RPAREN { Expr.Fun_call ($1, $3) }
+pub Assignment: Expr = {
+	"local" <lhs:LValue> "=" <rhs:Expr> =>
+		Expr::Bind { lhs: ctx.add(lhs), rhs: ctx.add(rhs) },
+	<lhs:LValue> "=" <rhs:Expr> =>
+		Expr::Bind { lhs: ctx.add(lhs), rhs: ctx.add(rhs) },
+};
 
-varnode:
-	| constant                { Expr.Int $1 }
-	| id                      { Expr.Id $1 }
-	| id COLON constant       { Expr.Sized (Expr.Id $1, $3) }
-	| constant COLON constant { Expr.Sized (Expr.Int $1, $3) }
+pub Declaration: Expr = {
+	"local" <id:ExprIdent> ":" <size:Number> => {
+		let rhs = Expr::Sized { expr: ctx.add(Expr::Unit), size };
+		Expr::Bind { lhs: ctx.add(id), rhs: ctx.add(rhs)}
+	},
+	"local" <id:ExprIdent> => {
+		Expr::Bind { lhs: ctx.add(id), rhs: ctx.add(Expr::Unit) }
+	}
+		
+};
 
-bitrange:
-	id LBRACKET constant COMMA constant RBRACKET
-		{ Expr.Bit_range ($1, $3, $5) }
+pub Build: Expr = {
+	"build" <Ident> => Expr::Build(<>),
+};
 
-sized_export:
-	| sized_pointer(id_expr) { $1 }
+pub FunCall: Expr = {
+	<id:Ident> "("	<args:Args> ")" =>
+		Expr::FunCall { id, args: ctx.add_many(args) }
+};
 
-id_expr:
-	| id { Expr.Id $1 }
+pub Goto: Expr = {
+	"goto" <target:JumpTarget> => Expr::Goto(<>),
+};
 
-%inline sized_pointer(X):
-	| STAR LBRACKET id RBRACKET COLON constant X { Expr.Sized (Expr.Pointer ($7, Some $3), $6) }
-	| STAR LBRACKET id RBRACKET X                { Expr.Pointer ($5, Some $3) }
-	| STAR COLON constant X                      { Expr.Sized (Expr.Pointer ($4, None), $3) }
-	| STAR X                                     { Expr.Pointer ($2, None) }
+pub Branch: Expr = {
+	"if" <expr:Expr> "goto" <target:JumpTarget> => {
+		let condition = ctx.add(expr);
+		Expr::Branch { condition, target }
+	},
+};
 
-args:
-	separated_list(COMMA, expr) { $1 }
+pub Call: Expr = {
+	"call" <JumpTarget> => Expr::Call(<>),
+};
 
-arg_names:
-	separated_list(COMMA, id) { $1 }
+pub Export: Expr = {
+	"export" <ExprVarnode> => Expr::Export(ctx.add(<>)),
+	"export" <SizedPointer<ExprIdent>> => Expr::Export(ctx.add(<>)),
+};
 
-%inline condition_op:
-	| ASSIGN        { Pattern.EQ }
-	| NOT_EQUAL     { Pattern.NE }
-	| LESS_THAN     { Pattern.LT}
-	| LESS_EQUAL    { Pattern.LE }
-	| GREATER_THAN  { Pattern.GT }
-	| GREATER_EQUAL { Pattern.GE }
+pub Return: Expr = {
+	"return" "[" <JumpTarget> "]" => Expr::Return(<>),
+};
 
-%inline condition_expr_op:
-	| SPEC_OR     { Expr.OR }
-	| SPEC_AND    { Expr.AND }
-	| SPEC_XOR    { Expr.XOR }
-	| SHIFT_LEFT  { Expr.LSHIFT }
-	| SHIFT_RIGHT { Expr.RSHIFT }
-	| PLUS        { Expr.PLUS }
-	| MINUS       { Expr.MINUS }
+pub JumpTarget: JumpTarget = {
+	<address:Number> "[" <space:Ident> "]" =>
+		JumpTarget::Fixed{ address, space: Some(space) },
+	<address:Number> =>
+		JumpTarget::Fixed{ address, space: None },
+	<Ident> =>
+		JumpTarget::Direct(<>),
+	"[" <Expr> "]" => {
+		let expr = ctx.add(<>);
+		JumpTarget::Indirect(expr)
+	},
+	<Label> => JumpTarget::Label(<>),
+};
 
-condition_expr_unary_op:
-	| MINUS { Expr.NEG }
-	| TILDE { Expr.INV }
+LValue: Expr = {
+	<ExprBitRange> => <>,
+	<id:ExprIdent> ":" <size:Number> => 
+		Expr::Sized { expr: ctx.add(id), size },
+	<ExprIdent>,
+	SizedPointer<Expr>,
+};
 
-expr_unary_op:
-	| MINUS { Expr.NEG }
-	| TILDE { Expr.INV }
-	| BANG  { Expr.NOT }
+ExprBitRange: Expr = {
+	<id:Ident> "[" <start_bit:Number> "," <width:Number> "]" =>
+		Expr::BitRange { id, start_bit, width }
+};
 
-%inline expr_op:
-	| OR                   { Expr.BOR }
-	| AND                  { Expr.BAND }
-	| XOR                  { Expr.BXOR }
-	| AMPERSAND            { Expr.AND }
-	| PIPE                 { Expr.OR }
-	| CARET                { Expr.XOR }
-	| EQUAL                { Expr.EQ }
-	| NOT_EQUAL            { Expr.NE }
-	| LESS_THAN            { Expr.LT }
-	| GREATER_THAN         { Expr.GT }
-	| LESS_EQUAL           { Expr.LE }
-	| GREATER_EQUAL        { Expr.GE }
-	| SHIFT_LEFT           { Expr.LSHIFT }
-	| SHIFT_RIGHT          { Expr.RSHIFT }
-	| PLUS                 { Expr.PLUS }
-	| MINUS                { Expr.MINUS }
-	| STAR                 { Expr.MUL }
-	| SLASH                { Expr.DIV }
-	| PERCENT              { Expr.MOD }
-	| SIGNED_DIV           { Expr.SDIV }
-	| SIGNED_MOD           { Expr.SMOD }
-	| SIGNED_SHIFT_LEFT    { Expr.SLSHIFT }
-	| SIGNED_SHIFT_RIGHT   { Expr.SRSHIFT }
-	| SIGNED_GREATER_EQUAL { Expr.SGE }
-	| SIGNED_LESS_EQUAL    { Expr.SLE }
-	| SIGNED_GREATER_THAN  { Expr.SGT }
-	| SIGNED_LESS_THAN     { Expr.SLT }
-	| FLOAT_EQUAL          { Expr.FEQ }
-	| FLOAT_NOT_EQUAL      { Expr.FNE }
-	| FLOAT_DIV            { Expr.FDIV }
-	| FLOAT_MUL            { Expr.FMUL }
-	| FLOAT_MINUS          { Expr.FMINUS }
-	| FLOAT_PLUS           { Expr.FPLUS }
-    | FLOAT_GREATER_EQUAL  { Expr.FGE }
-	| FLOAT_GREATER_THAN   { Expr.FGT }
-    | FLOAT_LESS_EQUAL     { Expr.FLE }
-	| FLOAT_LESS_THAN      { Expr.FLT }
+pub ExprVarnode: Expr = {
+	<ExprNumber>,
+	<ExprIdent>,
+	<id:ExprIdent> ":" <size:Number> => 
+		Expr::Sized { expr: ctx.add(id), size },
+	<n:ExprNumber> ":" <size:Number> => 
+		Expr::Sized { expr: ctx.add(n), size },
+};
 
-space_is_default:
-	| KEY_DEFAULT { true }
+pub Label: Loc<Ident> = "<" <Ident> ">";
+pub ExprIdent: Expr = <Ident> => Expr::Id(<>);
+pub ExprNumber: Expr = <Number> => Expr::Int(<>);
 
-id:
-	located(ID) { $1 }
+pub ArgNames: Vec<Loc<Ident>> = Sep<Ident, ",">;
+pub Args: Vec<Expr> = Sep<Expr, ",">;
 
-text:
-	located(TEXT) { $1 }
-
-%inline located(X):
-	x=X { Tag.with_pos Position.(lex_join $startpos $endpos) x }
-
-constant:
-	| located(integer) { $1 }
-
-integer:
-	| DEC_INT { $1 }
-	| HEX_INT { $1 }
-	| BIN_INT { $1 }
-
-signed:
-	| KEY_SIGNED { true }
-
-hex:
-	| KEY_HEX { true }
-	| KEY_DEC { false }
-
-display_lexer_on:
-	| { display_lexer_on() }
-
-display_lexer_off:
-	| { display_lexer_off() }
-
-*/
+SizedPointer<T>: Expr = {
+	"*" "[" <space:Ident> "]" ":" <size:Number> <expr:T> => {
+		let expr = ctx.add(expr);
+		let ptr = Expr::Pointer { expr, space: Some(space) };
+		let ptr = ctx.add(ptr);
+		Expr::Sized { expr, size }
+	},
+	"*" "[" <space:Ident> "]" <expr:T> => {
+		let expr = ctx.add(expr);
+		Expr::Pointer { expr, space: Some(space) }
+	},
+	"*" ":" <size:Number> <expr:T> => {
+		let expr = ctx.add(expr);
+		let ptr = Expr::Pointer { expr, space: None };
+		let ptr = ctx.add(ptr);
+		Expr::Sized { expr, size }
+	},
+	"*" <expr:T> => {
+		let expr = ctx.add(expr);
+		Expr::Pointer { expr, space: None }
+	},
+};
 
 extern {
 	type Location = usize;
@@ -423,88 +501,91 @@ extern {
     "dec int" => T::Normal(NT::DecInt(<usize>)),
     "hex int" => T::Normal(NT::HexInt(<usize>)),
     "ident" => T::Normal(NT::Ident(<&'input str>)),
-    // "is" => T::Normal(NT::Is),
-    // "if" => T::Normal(NT::If),
+    "is" => T::Display(DT::Is),
+    "if" => T::Normal(NT::If),
     "register" => T::Normal(NT::Register),
     "register space" => T::Normal(NT::RegisterSpace),
     "default" => T::Normal(NT::Default),
     "little" => T::Normal(NT::Little),
-    // "build" => T::Build,
-    // "call" => T::Call,
-    // "dec" => T::Dec,
+    "build" => T::Normal(NT::Build),
+    "call" => T::Normal(NT::Call),
+    "dec" => T::Normal(NT::Dec),
     "define" => T::Normal(NT::Define),
     "endian" => T::Normal(NT::Endian),
-  //   "export" => T::Export,
-  //   "goto" => T::Goto,
+    "export" => T::Normal(NT::Export),
+    "goto" => T::Normal(NT::Goto),
     "hex" => T::Normal(NT::Hex),
-  //   "local" => T::Local,
-  //   "macro" => T::Macro,
+    "local" => T::Normal(NT::Local),
+    "macro" => T::Normal(NT::Macro),
   	"offset" => T::Normal(NT::Offset),
-  //   "pcodeop" => T::PCodeOp,
+    "pcodeop" => T::Normal(NT::PCodeOp),
 		"ram space" =>  T::Normal(NT::RamSpace),
 		"rom space" =>  T::Normal(NT::RomSpace),
-  //   "return" => T::Return,
+    "return" => T::Normal(NT::Return),
     "signed" => T::Normal(NT::Signed),
-	"size" => T::Normal(NT::Size),
-	"space" => T::Normal(NT::Space),
+	  "size" => T::Normal(NT::Size),
+	  "space" => T::Normal(NT::Space),
     "token" => T::Normal(NT::Token),
     "type" => T::Normal(NT::Type),
-    //"unimpl" => T::Unimpl,
-  "variables" => T::Normal(NT::Variables),
-	"word size" => T::Normal(NT::WordSize),
-    // "..." => T::Ellipsis,
-    // "{" => T::LBrace,
-    // "}" => T::RBrace,
+    "unimpl" => T::Normal(NT::Unimpl),
+    "variables" => T::Normal(NT::Variables),
+	  "word size" => T::Normal(NT::WordSize),
+    "..." => T::Normal(NT::Ellipsis),
+    "{" => T::Normal(NT::LBrace),
+    "}" => T::Normal(NT::RBrace),
     "[" => T::Normal(NT::LBracket),
     "]" => T::Normal(NT::RBracket),
     "(" => T::Normal(NT::LParen),
     ")" => T::Normal(NT::RParen),
-    // ":" => T::Colon,
-    // "," => T::Comma,
-    // "!" => T::Bang,
-    // "~" => T::Tilde,
+    ":" => T::Normal(NT::Colon),
+    "," => T::Normal(NT::Comma),
+    "!" => T::Normal(NT::Bang),
+    "~" => T::Normal(NT::Tilde),
     "," => T::Normal(NT::Comma),
     ";" => T::Normal(NT::Semi),
     "=" => T::Normal(NT::Assign),
-    // "<" => T::LT,
-    // ">" => T::GT,
-    // "==" => T::EQ,
-    // "!=" => T::NE,
-    // "<=" => T::LE,
-    // ">=" => T::GE,
-    // "||" => T::Or,
-    // "&&" => T::And,
-    // "^^" => T::Xor,
-    // "|" => T::Pipe,
-    // "&" => T::Ampersand,
-    // "^" => T::Caret,
-    // "<<" => T::LShift,
-    // ">>" => T::RShift,
-    // "+" => T::Plus,
-    // "-" => T::Minus,
-    // "*" => T::Star,
-    // "/" => T::Slash,
-    // "% "=> T::Percent,
-    // "$or" => T::SpecOr,
-    // "$and" => T::SpecAnd,
-    // "$xor" => T::SpecXor,
-    // "f<" => T::FLT,
-    // "f>" => T::FGT,
-    // "f==" => T::FEQ,
-    // "f!=" => T::FNE,
-    // "f<=" => T::FLE,
-    // "f>=" => T::FGE,
-    // "f+" => T::FPlus,
-    // "f-" => T::FMinus,
-    // "f*" => T::FMul,
-    // "f/" => T::FDiv,
-    // "s<" => T::SLT,
-    // "s>" => T::SGT,
-    // "s<=" => T::SLE,
-    // "s>=" => T::SGE,
-    // "s<<" => T::SLShift,
-    // "s>>" => T::SRShift,
-    // "s/" => T::SDiv,
-    // "s%" => T::SMod,
+    "<" => T::Normal(NT::LT),
+    ">" => T::Normal(NT::GT),
+    "==" => T::Normal(NT::EQ),
+    "!=" => T::Normal(NT::NE),
+    "<=" => T::Normal(NT::LE),
+    ">=" => T::Normal(NT::GE),
+    "||" => T::Normal(NT::Or),
+    "&&" => T::Normal(NT::And),
+    "^^" => T::Normal(NT::Xor),
+    "|" => T::Normal(NT::Pipe),
+    "&" => T::Normal(NT::Ampersand),
+    "^" => T::Normal(NT::Caret),
+    "<<" => T::Normal(NT::LShift),
+    ">>" => T::Normal(NT::RShift),
+    "+" => T::Normal(NT::Plus),
+    "-" => T::Normal(NT::Minus),
+    "*" => T::Normal(NT::Star),
+    "/" => T::Normal(NT::Slash),
+    "%" => T::Normal(NT::Percent),
+    "$or" => T::Normal(NT::SpecOr),
+    "$and" => T::Normal(NT::SpecAnd),
+    "$xor" => T::Normal(NT::SpecXor),
+    "f<" => T::Normal(NT::FLT),
+    "f>" => T::Normal(NT::FGT),
+    "f==" => T::Normal(NT::FEQ),
+    "f!=" => T::Normal(NT::FNE),
+    "f<=" => T::Normal(NT::FLE),
+    "f>=" => T::Normal(NT::FGE),
+    "f+" => T::Normal(NT::FPlus),
+    "f-" => T::Normal(NT::FMinus),
+    "f*" => T::Normal(NT::FMul),
+    "f/" => T::Normal(NT::FDiv),
+    "s<" => T::Normal(NT::SLT),
+    "s>" => T::Normal(NT::SGT),
+    "s<=" => T::Normal(NT::SLE),
+    "s>=" => T::Normal(NT::SGE),
+    "s<<" => T::Normal(NT::SLShift),
+    "s>>" => T::Normal(NT::SRShift),
+    "s/" => T::Normal(NT::SDiv),
+    "s%" => T::Normal(NT::SMod),
+    "caret" => T::Display(DT::Caret),
+    "text" => T::Display(DT::Text(<&'input str>)),
+		" " => T::Display(DT::Whitespace),
 	}
 }
