@@ -57,6 +57,8 @@ pub enum NormalToken<'input> {
     Local,
     #[token("macro", ignore(case))]
     Macro,
+    #[token("offset", ignore(case))]
+    Offset,
     #[token("pcodeop", ignore(case))]
     PCodeOp,
     #[token("return", ignore(case))]

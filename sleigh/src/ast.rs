@@ -80,17 +80,42 @@ impl fmt::Display for Endian {
 #[derive(Clone, PartialEq, Serialize)]
 pub struct Token {
     pub id: Loc<Ident>,
-    pub width: Loc<usize>,
-    pub fields: Vec<Loc<Field>>,
+    pub bit_width: usize,
+    pub fields: Vec<Field>,
+}
+
+#[derive(Copy, Clone, PartialEq, Serialize)]
+pub enum FieldMod {
+    IsSigned,
+    IsHex,
 }
 
 #[derive(Copy, Clone, PartialEq, Serialize)]
 pub struct Field {
     pub id: Loc<Ident>,
-    pub start_bit: Loc<usize>,
-    pub end_bit: Loc<usize>,
+    pub start_bit: usize,
+    pub end_bit: usize,
     pub is_signed: bool,
     pub is_hex: bool,
+}
+
+impl Field {
+    pub fn new(id: Loc<Ident>, start_bit: usize, end_bit: usize, mods: Vec<FieldMod>) -> Self {
+        let this = Self {
+            id,
+            start_bit,
+            end_bit,
+            is_signed: false,
+            is_hex: false,
+        };
+        mods.into_iter().fold(this, |mut this, m| {
+            match m {
+                FieldMod::IsSigned => this.is_signed = true,
+                FieldMod::IsHex => this.is_hex = true,
+            }
+            this
+        })
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Serialize)]
@@ -103,28 +128,28 @@ pub enum SpaceMod {
 #[derive(Copy, Clone, PartialEq, Serialize)]
 pub struct Space {
     pub id: Loc<Ident>,
-    pub kind: Loc<SpaceKind>,
+    pub kind: SpaceKind,
     pub size: usize,
     pub word_size: usize,
     pub is_default: bool,
 }
 
 impl Space {
-    pub fn new(id: Loc<Ident>, kind: Loc<SpaceKind>, mods: Vec<SpaceMod>) -> Self {
-        let space = Space {
+    pub fn new(id: Loc<Ident>, kind: SpaceKind, mods: Vec<SpaceMod>) -> Self {
+        let this = Self {
             id,
             kind,
             size: 0,
             word_size: 1,
             is_default: true,
         };
-        mods.into_iter().fold(space, |mut space, m| {
+        mods.into_iter().fold(this, |mut this, m| {
             match m {
-                SpaceMod::Size(n) => space.size = n,
-                SpaceMod::WordSize(n) => space.word_size = n,
-                SpaceMod::IsDefault => space.is_default = true,
+                SpaceMod::Size(n) => this.size = n,
+                SpaceMod::WordSize(n) => this.word_size = n,
+                SpaceMod::IsDefault => this.is_default = true,
             }
-            space
+            this
         })
     }
 }
@@ -136,11 +161,34 @@ pub enum SpaceKind {
     Register,
 }
 
+#[derive(Copy, Clone, PartialEq, Serialize)]
+pub enum VarnodeMod {
+    Size(usize),
+    Offset(usize),
+}
+
 #[derive(Clone, PartialEq, Serialize)]
 pub struct Varnode {
-    pub offset: Loc<usize>,
-    pub size: Loc<usize>,
+    pub offset: usize,
+    pub size: usize,
     pub ids: Vec<Loc<Ident>>,
+}
+
+impl Varnode {
+    pub fn new(ids: Vec<Loc<Ident>>, mods: Vec<VarnodeMod>) -> Self {
+        let this = Self {
+            ids,
+            size: 0,
+            offset: 0,
+        };
+        mods.into_iter().fold(this, |mut this, m| {
+            match m {
+                VarnodeMod::Size(n) => this.size = n,
+                VarnodeMod::Offset(n) => this.offset = n,
+            }
+            this
+        })
+    }
 }
 
 #[derive(Clone, PartialEq, Serialize)]

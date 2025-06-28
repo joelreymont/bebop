@@ -1,7 +1,7 @@
 use super::{
 	ast::*,
 	error::ParseError,
-	lexer::{Token, NormalToken, DisplayToken},
+	lexer::{Token as T, NormalToken as NT, DisplayToken as DT},
 	meta::*,
 };
 
@@ -33,17 +33,15 @@ pub Ident: Loc<Ident> = {
 pub Defs: Vec<Definition> = <Def+> => <>;
 
 pub Def: Definition = {
-	<DefSemi> ";" => <>,
-};
-
-pub DefSemi: Definition = {
 	Located<EndianDef> => Definition::Endian(<>),
 	Located<AlignmentDef> => Definition::Alignment(<>),
 	Located<SpaceDef> => Definition::Space(<>),
+	Located<VarnodeDef> => Definition::Varnode(<>),
+	Located<TokenDef> => Definition::Token(<>),
 };
 
 pub EndianDef: Endian = {
-	"define" "endian" "=" <Endian> => <>
+	"define" "endian" "=" <Endian> ";" => <>
 };
 
 pub Endian: Endian = {
@@ -52,7 +50,7 @@ pub Endian: Endian = {
 }
 
 pub AlignmentDef: usize = {
-	"define" "alignment" "=" <Number> => <>
+	"define" "alignment" "=" <Number> ";" => <>
 };
 
 pub Number: usize = {
@@ -62,14 +60,14 @@ pub Number: usize = {
 };
 
 pub SpaceDef: Space = {
-	"define" "space" <id:Ident> <kind:SpaceKind> <mods:SpaceMod+> =>
+	"define" "space" <id:Ident> <kind:SpaceKind> <mods:SpaceMod+> ";" =>
 		Space::new(id, kind, mods),
-	"define" "space" <id:Located<"register">> <kind:SpaceKind> <mods:SpaceMod+> =>
+	"define" "space" <id:Located<"register">> <kind:SpaceKind> <mods:SpaceMod+> ";" =>
 		Space::new(id.map(|_| Ident::new("register")), kind, mods),
 };
 
-pub SpaceKind: Loc<SpaceKind> = {
-  "type" "=" <Located<space_kind>> => <>,
+pub SpaceKind: SpaceKind = {
+  "type" "=" <space_kind> => <>,
 };
 
 space_kind: SpaceKind = {
@@ -78,12 +76,44 @@ space_kind: SpaceKind = {
 	"register space" => SpaceKind::Register,
 };
 
-pub SpaceMod: SpaceMod = {
+SpaceMod: SpaceMod = {
 	"size" "=" <Number> => SpaceMod::Size(<>),
 	"word size" "=" <Number> => SpaceMod::WordSize(<>),
 	"default" => SpaceMod::IsDefault,
 };
+
+pub VarnodeDef: Varnode = {
+	"define" "register" <mods:VarnodeMod+> "[" <ids:Ident+> "]" ";" =>
+		Varnode::new(ids, mods),
+};
+
+VarnodeMod: VarnodeMod = {
+	"size" "=" <Number> => VarnodeMod::Size(<>),
+	"offset" "=" <Number> => VarnodeMod::Offset(<>),
+};
+
+pub TokenDef: Token = {
+	"define" "token" <id:Ident> "(" <bit_width:Number> ")" <fields:TokenField+> ";" =>
+		Token {id, bit_width, fields},
+};
+
+pub TokenField: Field = {
+	<id:Ident> "=" "(" <start:Number> "," <end:Number> ")" <mods:TokenFieldMod*> =>
+		Field::new(id, start, end, mods),
+};
+
+pub TokenFieldMod: FieldMod = {
+	"signed" => FieldMod::IsSigned,
+	"hex" => FieldMod::IsHex,
+};
 /*
+token_field:
+	id ASSIGN LPAREN constant COMMA constant RPAREN token_field_mod*
+		{ Token_field.make ~id:$1 ~start_bit:$4 ~end_bit:$6 ~mods:$8 }
+
+token_field_mod:
+	| signed { Token_field.Signed $1 }
+	| hex    { Token_field.Hex $1 }
 
 definition:
 	| definition_semi SEMI { $1 }
@@ -91,56 +121,9 @@ definition:
 	| macro                { Definition.Macro $1 }
 	
 definition_semi:
-	| endian_definition         { Definition.Endian $1 }
-	| align_definition          { Definition.Alignment $1 }
-	| space_definition          { Definition.Space $1 }
-	| varnode_definition        { Definition.Varnode $1 }
 	| token_definition          { Definition.Token $1 }
 	| varnode_attach_definition { Definition.Varnode_attach $1 }
 	| pcodeop_definition        { Definition.Pcode_op $1 }
-	(*
-	| context_definition      { Context $1 }
-	| bitrange_definition     { Bit_range $1 }
-	| value_attach_definition { Value_attach $1 }
-	| name_attach_definition  { Name_attach $1 }
-	*)
-
-endian_definition:
-	KEY_DEFINE KEY_ENDIAN ASSIGN located(endian) { $4 } 
-
-endian:
-	| KEY_BIG    { Endian.Big }
-	| KEY_LITTLE { Endian.Little }
-
-align_definition:
-	KEY_DEFINE KEY_ALIGNMENT ASSIGN constant { $4 }
-	
-space_definition:
-	KEY_DEFINE KEY_SPACE space_name space_mod+
-		{ Space.make ~id:$3 ~mods:$4 }
-
-space_mod:
-	| id ASSIGN id       { Space.make_kind $1 $3 }
-	| id ASSIGN constant { Space.make_size $1 $3 }
-	| space_is_default   { Space.make_default $1 }
-
-space_name:
-	| RES_REGISTER { Tag.with_pos Position.(lex_join $startpos $endpos) "register" }
-	| id           { $1 }
-
-varnode_definition:
-	varnode_start RES_REGISTER varnode_mod+ LBRACKET id+ RBRACKET
-		{ Varnode.make ~pos:(Position.position $1) ~mods:$3 ~registers:$5 }
-
-varnode_start:
-	KEY_DEFINE { Position.with_poss $startpos $endpos () }
-
-varnode_mod:
-	id ASSIGN constant { Varnode.make_mod $1 $3 }
-
-token_definition:
-	KEY_DEFINE KEY_TOKEN id LPAREN constant RPAREN token_field+
-		{ Token.{id = $3; bit_size = $5; fields = $7} }
 
 varnode_attach_definition:
 	varnode_attach_start KEY_VARIABLES LBRACKET id+ RBRACKET LBRACKET id+ RBRACKET
@@ -400,14 +383,6 @@ expr_unary_op:
     | FLOAT_LESS_EQUAL     { Expr.FLE }
 	| FLOAT_LESS_THAN      { Expr.FLT }
 
-token_field:
-	id ASSIGN LPAREN constant COMMA constant RPAREN token_field_mod*
-		{ Token_field.make ~id:$1 ~start_bit:$4 ~end_bit:$6 ~mods:$8 }
-
-token_field_mod:
-	| signed { Token_field.Signed $1 }
-	| hex    { Token_field.Hex $1 }
-
 space_is_default:
 	| KEY_DEFAULT { true }
 
@@ -447,93 +422,95 @@ extern {
 	type Location = usize;
 	type Error = ParseError;
 
-	enum Token<'input> {
-    "dec int" => Token::Normal(NormalToken::DecInt(<usize>)),
-    "bin int" => Token::Normal(NormalToken::BinInt(<usize>)),
-    "hex int" => Token::Normal(NormalToken::HexInt(<usize>)),
-    "ident" => Token::Normal(NormalToken::Ident(<&'input str>)),
-    // "is" => Token::Normal(NormalToken::Is),
-    // "if" => Token::Normal(NormalToken::If),
-    "register" => Token::Normal(NormalToken::Register),
-    "register space" => Token::Normal(NormalToken::RegisterSpace),
-    "alignment" => Token::Normal(NormalToken::Alignment),
-    // "attach" => Token::Normal(NormalToken::Attach),
-    "big" => Token::Normal(NormalToken::Big),
-    "default" => Token::Normal(NormalToken::Default),
-    "little" => Token::Normal(NormalToken::Little),
-    // "build" => Token::Build,
-    // "call" => Token::Call,
-    // "dec" => Token::Dec,
-    "define" => Token::Normal(NormalToken::Define),
-    "endian" => Token::Normal(NormalToken::Endian),
-  //   "export" => Token::Export,
-  //   "goto" => Token::Goto,
-  //   "hex" => Token::Hex,
-  //   "local" => Token::Local,
-  //   "macro" => Token::Macro,
-  //   "pcodeop" => Token::PCodeOp,
-		"ram space" =>  Token::Normal(NormalToken::RamSpace),
-		"rom space" =>  Token::Normal(NormalToken::RomSpace),
-  //   "return" => Token::Return,
-  //   "signed" => Token::Signed,
-	"size" => Token::Normal(NormalToken::Size),
-	"space" => Token::Normal(NormalToken::Space),
-    //"token" => Token::Token,
-    "type" => Token::Normal(NormalToken::Type),
-    //"unimpl" => Token::Unimpl,
-	"word size" => Token::Normal(NormalToken::WordSize),
-    // "..." => Token::Ellipsis,
-    // "{" => Token::LBrace,
-    // "}" => Token::RBrace,
-    // "[" => Token::LBracket,
-    // "]" => Token::RBracket,
-    // "(" => Token::LParen,
-    // ")" => Token::RParen,
-    // ":" => Token::Colon,
-    // "," => Token::Comma,
-    // "!" => Token::Bang,
-    // "~" => Token::Tilde,
-    ";" => Token::Normal(NormalToken::Semi),
-    "=" => Token::Normal(NormalToken::Assign),
-    // "<" => Token::LT,
-    // ">" => Token::GT,
-    // "==" => Token::EQ,
-    // "!=" => Token::NE,
-    // "<=" => Token::LE,
-    // ">=" => Token::GE,
-    // "||" => Token::Or,
-    // "&&" => Token::And,
-    // "^^" => Token::Xor,
-    // "|" => Token::Pipe,
-    // "&" => Token::Ampersand,
-    // "^" => Token::Caret,
-    // "<<" => Token::LShift,
-    // ">>" => Token::RShift,
-    // "+" => Token::Plus,
-    // "-" => Token::Minus,
-    // "*" => Token::Star,
-    // "/" => Token::Slash,
-    // "% "=> Token::Percent,
-    // "$or" => Token::SpecOr,
-    // "$and" => Token::SpecAnd,
-    // "$xor" => Token::SpecXor,
-    // "f<" => Token::FLT,
-    // "f>" => Token::FGT,
-    // "f==" => Token::FEQ,
-    // "f!=" => Token::FNE,
-    // "f<=" => Token::FLE,
-    // "f>=" => Token::FGE,
-    // "f+" => Token::FPlus,
-    // "f-" => Token::FMinus,
-    // "f*" => Token::FMul,
-    // "f/" => Token::FDiv,
-    // "s<" => Token::SLT,
-    // "s>" => Token::SGT,
-    // "s<=" => Token::SLE,
-    // "s>=" => Token::SGE,
-    // "s<<" => Token::SLShift,
-    // "s>>" => Token::SRShift,
-    // "s/" => Token::SDiv,
-    // "s%" => Token::SMod,
+	enum T<'input> {
+    "alignment" => T::Normal(NT::Alignment),
+    // "attach" => T::Normal(NT::Attach),
+    "big" => T::Normal(NT::Big),
+    "bin int" => T::Normal(NT::BinInt(<usize>)),
+    "dec int" => T::Normal(NT::DecInt(<usize>)),
+    "hex int" => T::Normal(NT::HexInt(<usize>)),
+    "ident" => T::Normal(NT::Ident(<&'input str>)),
+    // "is" => T::Normal(NT::Is),
+    // "if" => T::Normal(NT::If),
+    "register" => T::Normal(NT::Register),
+    "register space" => T::Normal(NT::RegisterSpace),
+    "default" => T::Normal(NT::Default),
+    "little" => T::Normal(NT::Little),
+    // "build" => T::Build,
+    // "call" => T::Call,
+    // "dec" => T::Dec,
+    "define" => T::Normal(NT::Define),
+    "endian" => T::Normal(NT::Endian),
+  //   "export" => T::Export,
+  //   "goto" => T::Goto,
+    "hex" => T::Normal(NT::Hex),
+  //   "local" => T::Local,
+  //   "macro" => T::Macro,
+  	"offset" => T::Normal(NT::Offset),
+  //   "pcodeop" => T::PCodeOp,
+		"ram space" =>  T::Normal(NT::RamSpace),
+		"rom space" =>  T::Normal(NT::RomSpace),
+  //   "return" => T::Return,
+    "signed" => T::Normal(NT::Signed),
+	"size" => T::Normal(NT::Size),
+	"space" => T::Normal(NT::Space),
+    "token" => T::Normal(NT::Token),
+    "type" => T::Normal(NT::Type),
+    //"unimpl" => T::Unimpl,
+	"word size" => T::Normal(NT::WordSize),
+    // "..." => T::Ellipsis,
+    // "{" => T::LBrace,
+    // "}" => T::RBrace,
+    "[" => T::Normal(NT::LBracket),
+    "]" => T::Normal(NT::RBracket),
+    "(" => T::Normal(NT::LParen),
+    ")" => T::Normal(NT::RParen),
+    // ":" => T::Colon,
+    // "," => T::Comma,
+    // "!" => T::Bang,
+    // "~" => T::Tilde,
+    "," => T::Normal(NT::Comma),
+    ";" => T::Normal(NT::Semi),
+    "=" => T::Normal(NT::Assign),
+    // "<" => T::LT,
+    // ">" => T::GT,
+    // "==" => T::EQ,
+    // "!=" => T::NE,
+    // "<=" => T::LE,
+    // ">=" => T::GE,
+    // "||" => T::Or,
+    // "&&" => T::And,
+    // "^^" => T::Xor,
+    // "|" => T::Pipe,
+    // "&" => T::Ampersand,
+    // "^" => T::Caret,
+    // "<<" => T::LShift,
+    // ">>" => T::RShift,
+    // "+" => T::Plus,
+    // "-" => T::Minus,
+    // "*" => T::Star,
+    // "/" => T::Slash,
+    // "% "=> T::Percent,
+    // "$or" => T::SpecOr,
+    // "$and" => T::SpecAnd,
+    // "$xor" => T::SpecXor,
+    // "f<" => T::FLT,
+    // "f>" => T::FGT,
+    // "f==" => T::FEQ,
+    // "f!=" => T::FNE,
+    // "f<=" => T::FLE,
+    // "f>=" => T::FGE,
+    // "f+" => T::FPlus,
+    // "f-" => T::FMinus,
+    // "f*" => T::FMul,
+    // "f/" => T::FDiv,
+    // "s<" => T::SLT,
+    // "s>" => T::SGT,
+    // "s<=" => T::SLE,
+    // "s>=" => T::SGE,
+    // "s<<" => T::SLShift,
+    // "s>>" => T::SRShift,
+    // "s/" => T::SDiv,
+    // "s%" => T::SMod,
 	}
 }

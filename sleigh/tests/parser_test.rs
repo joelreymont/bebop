@@ -2,8 +2,10 @@ use bebop_sleigh::{error::*, grammar, lexer::*, meta::*};
 use insta::*;
 
 #[test]
-fn test_endian() -> Result<(), ParseError> {
-    let s = r"define endian = big;";
+fn test_def_endian() -> Result<(), ParseError> {
+    let s = r"
+      define endian = big;
+    ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
     let ast = parser.parse(FileId::empty(), lexer)?;
@@ -13,7 +15,7 @@ fn test_endian() -> Result<(), ParseError> {
         value: Big,
         tag: Span(
           src: FileId([]),
-          range: (0, 19),
+          range: (7, 27),
         ),
       )),
     ]
@@ -22,8 +24,10 @@ fn test_endian() -> Result<(), ParseError> {
 }
 
 #[test]
-fn test_alignment() -> Result<(), ParseError> {
-    let s = r"define alignment = 0x200;";
+fn test_def_alignment() -> Result<(), ParseError> {
+    let s = r"
+      define alignment = 0x200;
+    ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
     let ast = parser.parse(FileId::empty(), lexer)?;
@@ -33,7 +37,7 @@ fn test_alignment() -> Result<(), ParseError> {
         value: 512,
         tag: Span(
           src: FileId([]),
-          range: (0, 24),
+          range: (7, 32),
         ),
       )),
     ]
@@ -42,8 +46,10 @@ fn test_alignment() -> Result<(), ParseError> {
 }
 
 #[test]
-fn test_space1() -> Result<(), ParseError> {
-    let s = r"define space ram type=ram_space size=4 wordsize=1 default;";
+fn test_def_space1() -> Result<(), ParseError> {
+    let s = r"
+      define space ram type=ram_space size=4 wordsize=1 default;
+    ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
     let ast = parser.parse(FileId::empty(), lexer)?;
@@ -55,23 +61,17 @@ fn test_space1() -> Result<(), ParseError> {
             value: Ident("ram"),
             tag: Span(
               src: FileId([]),
-              range: (13, 16),
+              range: (20, 23),
             ),
           ),
-          kind: Tagged(
-            value: Ram,
-            tag: Span(
-              src: FileId([]),
-              range: (22, 31),
-            ),
-          ),
+          kind: Ram,
           size: 4,
           word_size: 1,
           is_default: true,
         ),
         tag: Span(
           src: FileId([]),
-          range: (0, 57),
+          range: (7, 65),
         ),
       )),
     ]
@@ -80,8 +80,10 @@ fn test_space1() -> Result<(), ParseError> {
 }
 
 #[test]
-fn test_space2() -> Result<(), ParseError> {
-    let s = r"define space register type=register_space size=4;";
+fn test_def_space2() -> Result<(), ParseError> {
+    let s = r"
+      define space register type=register_space size=4;
+    ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
     let ast = parser.parse(FileId::empty(), lexer)?;
@@ -93,23 +95,149 @@ fn test_space2() -> Result<(), ParseError> {
             value: Ident("register"),
             tag: Span(
               src: FileId([]),
-              range: (13, 21),
+              range: (20, 28),
             ),
           ),
-          kind: Tagged(
-            value: Register,
-            tag: Span(
-              src: FileId([]),
-              range: (27, 41),
-            ),
-          ),
+          kind: Register,
           size: 4,
           word_size: 1,
           is_default: true,
         ),
         tag: Span(
           src: FileId([]),
-          range: (0, 48),
+          range: (7, 56),
+        ),
+      )),
+    ]
+    "#);
+    Ok(())
+}
+
+#[test]
+fn test_def_register() -> Result<(), ParseError> {
+    let s = r"
+      define register offset=0x100 size=4
+      [r0 r1 r2 r3];
+    ";
+    let lexer = Lexer::new(s);
+    let parser = grammar::DefsParser::new();
+    let ast = parser.parse(FileId::empty(), lexer)?;
+    assert_ron_snapshot!(ast, @r#"
+    [
+      Varnode(Tagged(
+        value: Varnode(
+          offset: 256,
+          size: 4,
+          ids: [
+            Tagged(
+              value: Ident("r0"),
+              tag: Span(
+                src: FileId([]),
+                range: (50, 52),
+              ),
+            ),
+            Tagged(
+              value: Ident("r1"),
+              tag: Span(
+                src: FileId([]),
+                range: (53, 55),
+              ),
+            ),
+            Tagged(
+              value: Ident("r2"),
+              tag: Span(
+                src: FileId([]),
+                range: (56, 58),
+              ),
+            ),
+            Tagged(
+              value: Ident("r3"),
+              tag: Span(
+                src: FileId([]),
+                range: (59, 61),
+              ),
+            ),
+          ],
+        ),
+        tag: Span(
+          src: FileId([]),
+          range: (7, 63),
+        ),
+      )),
+    ]
+    "#);
+    Ok(())
+}
+
+#[test]
+fn test_def_token() -> Result<(), ParseError> {
+    let s = r"
+      define token instr32(32)
+          OpSz        = (31, 31)
+          Opc         = (25, 30) signed
+          Rt          = (20, 24) hex
+      ;    
+    ";
+    let lexer = Lexer::new(s);
+    let parser = grammar::DefsParser::new();
+    let ast = parser.parse(FileId::empty(), lexer)?;
+    assert_ron_snapshot!(ast, @r#"
+    [
+      Token(Tagged(
+        value: Token(
+          id: Tagged(
+            value: Ident("instr32"),
+            tag: Span(
+              src: FileId([]),
+              range: (20, 27),
+            ),
+          ),
+          bit_width: 32,
+          fields: [
+            Field(
+              id: Tagged(
+                value: Ident("OpSz"),
+                tag: Span(
+                  src: FileId([]),
+                  range: (42, 46),
+                ),
+              ),
+              start_bit: 31,
+              end_bit: 31,
+              is_signed: false,
+              is_hex: false,
+            ),
+            Field(
+              id: Tagged(
+                value: Ident("Opc"),
+                tag: Span(
+                  src: FileId([]),
+                  range: (75, 78),
+                ),
+              ),
+              start_bit: 25,
+              end_bit: 30,
+              is_signed: true,
+              is_hex: false,
+            ),
+            Field(
+              id: Tagged(
+                value: Ident("Rt"),
+                tag: Span(
+                  src: FileId([]),
+                  range: (115, 117),
+                ),
+              ),
+              start_bit: 20,
+              end_bit: 24,
+              is_signed: false,
+              is_hex: true,
+            ),
+          ],
+        ),
+        tag: Span(
+          src: FileId([]),
+          range: (7, 149),
         ),
       )),
     ]
