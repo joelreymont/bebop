@@ -38,6 +38,7 @@ pub Def: Definition = {
 	Located<SpaceDef> => Definition::Space(<>),
 	Located<VarnodeDef> => Definition::Varnode(<>),
 	Located<TokenDef> => Definition::Token(<>),
+	Located<VarnodeAttachDef> => Definition::VarnodeAttach(<>),
 };
 
 pub EndianDef: Endian = {
@@ -106,22 +107,14 @@ pub TokenFieldMod: FieldMod = {
 	"signed" => FieldMod::IsSigned,
 	"hex" => FieldMod::IsHex,
 };
+
+pub VarnodeAttachDef: VarnodeAttach = {
+	"attach" "variables" "[" <fields:Ident+> "]" "[" <registers:Ident+> "]" ";" =>
+		VarnodeAttach { fields, registers }
+};
+
 /*
-token_field:
-	id ASSIGN LPAREN constant COMMA constant RPAREN token_field_mod*
-		{ Token_field.make ~id:$1 ~start_bit:$4 ~end_bit:$6 ~mods:$8 }
-
-token_field_mod:
-	| signed { Token_field.Signed $1 }
-	| hex    { Token_field.Hex $1 }
-
-definition:
-	| definition_semi SEMI { $1 }
-	| constructor          { Definition.Constructor $1 }
-	| macro                { Definition.Macro $1 }
-	
 definition_semi:
-	| token_definition          { Definition.Token $1 }
 	| varnode_attach_definition { Definition.Varnode_attach $1 }
 	| pcodeop_definition        { Definition.Pcode_op $1 }
 
@@ -424,7 +417,7 @@ extern {
 
 	enum T<'input> {
     "alignment" => T::Normal(NT::Alignment),
-    // "attach" => T::Normal(NT::Attach),
+    "attach" => T::Normal(NT::Attach),
     "big" => T::Normal(NT::Big),
     "bin int" => T::Normal(NT::BinInt(<usize>)),
     "dec int" => T::Normal(NT::DecInt(<usize>)),
@@ -457,6 +450,7 @@ extern {
     "token" => T::Normal(NT::Token),
     "type" => T::Normal(NT::Type),
     //"unimpl" => T::Unimpl,
+  "variables" => T::Normal(NT::Variables),
 	"word size" => T::Normal(NT::WordSize),
     // "..." => T::Ellipsis,
     // "{" => T::LBrace,

@@ -194,7 +194,7 @@ impl Varnode {
 #[derive(Clone, PartialEq, Serialize)]
 pub struct VarnodeAttach {
     pub fields: Vec<Loc<Ident>>,
-    pub registers: Vec<Option<Loc<Ident>>>,
+    pub registers: Vec<Loc<Ident>>,
 }
 
 #[derive(Clone, PartialEq, Serialize)]

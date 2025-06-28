@@ -83,6 +83,8 @@ pub enum NormalToken<'input> {
     Type,
     #[token("unimpl", ignore(case))]
     Unimpl,
+    #[token("variables", ignore(case))]
+    Variables,
     #[token("wordsize", ignore(case))]
     WordSize,
     #[token("...")]

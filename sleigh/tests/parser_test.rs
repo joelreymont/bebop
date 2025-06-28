@@ -244,3 +244,67 @@ fn test_def_token() -> Result<(), ParseError> {
     "#);
     Ok(())
 }
+
+#[test]
+fn test_def_varnode_attach() -> Result<(), ParseError> {
+    let s = r"
+      attach variables [Rt Rs] [
+          r0 _ r1
+      ];
+    ";
+    let lexer = Lexer::new(s);
+    let parser = grammar::DefsParser::new();
+    let ast = parser.parse(FileId::empty(), lexer)?;
+    assert_ron_snapshot!(ast, @r#"
+    [
+      VarnodeAttach(Tagged(
+        value: VarnodeAttach(
+          fields: [
+            Tagged(
+              value: Ident("Rt"),
+              tag: Span(
+                src: FileId([]),
+                range: (25, 27),
+              ),
+            ),
+            Tagged(
+              value: Ident("Rs"),
+              tag: Span(
+                src: FileId([]),
+                range: (28, 30),
+              ),
+            ),
+          ],
+          registers: [
+            Tagged(
+              value: Ident("r0"),
+              tag: Span(
+                src: FileId([]),
+                range: (44, 46),
+              ),
+            ),
+            Tagged(
+              value: Ident("_"),
+              tag: Span(
+                src: FileId([]),
+                range: (47, 48),
+              ),
+            ),
+            Tagged(
+              value: Ident("r1"),
+              tag: Span(
+                src: FileId([]),
+                range: (49, 51),
+              ),
+            ),
+          ],
+        ),
+        tag: Span(
+          src: FileId([]),
+          range: (7, 60),
+        ),
+      )),
+    ]
+    "#);
+    Ok(())
+}
