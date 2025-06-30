@@ -1,4 +1,4 @@
-use bebop_sleigh::{error::*, grammar, lexer::*, meta::*};
+use bebop_sleigh::{ast::Context, error::*, grammar, lexer::*, meta::*};
 use insta::*;
 
 #[test]
@@ -8,7 +8,8 @@ fn test_def_endian() -> Result<(), ParseError> {
     ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let mut context = Context::new();
+    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
     assert_ron_snapshot!(ast, @r"
     [
       Endian(Tagged(
@@ -30,7 +31,8 @@ fn test_def_alignment() -> Result<(), ParseError> {
     ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let mut context = Context::new();
+    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
     assert_ron_snapshot!(ast, @r"
     [
       Alignment(Tagged(
@@ -52,7 +54,8 @@ fn test_def_space1() -> Result<(), ParseError> {
     ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let mut context = Context::new();
+    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
     assert_ron_snapshot!(ast, @r#"
     [
       Space(Tagged(
@@ -86,7 +89,8 @@ fn test_def_space2() -> Result<(), ParseError> {
     ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let mut context = Context::new();
+    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
     assert_ron_snapshot!(ast, @r#"
     [
       Space(Tagged(
@@ -121,7 +125,8 @@ fn test_def_register() -> Result<(), ParseError> {
     ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let mut context = Context::new();
+    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
     assert_ron_snapshot!(ast, @r#"
     [
       Varnode(Tagged(
@@ -180,7 +185,8 @@ fn test_def_token() -> Result<(), ParseError> {
     ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let mut context = Context::new();
+    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
     assert_ron_snapshot!(ast, @r#"
     [
       Token(Tagged(
@@ -254,7 +260,8 @@ fn test_def_varnode_attach() -> Result<(), ParseError> {
     ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let mut context = Context::new();
+    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
     assert_ron_snapshot!(ast, @r#"
     [
       VarnodeAttach(Tagged(
