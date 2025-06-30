@@ -22,9 +22,6 @@ impl Ident {
     pub fn new<S: ToString>(s: S) -> Self {
         Self(Intern::new(s.to_string()))
     }
-    pub fn as_ref(self) -> &'static String {
-        self.0.as_ref()
-    }
 }
 
 impl Deref for Ident {
@@ -32,6 +29,12 @@ impl Deref for Ident {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl AsRef<String> for Ident {
+    fn as_ref(&self) -> &'static String {
+        self.0.as_ref()
     }
 }
 
@@ -52,6 +55,12 @@ impl Context {
 
     pub fn add_many(&mut self, v: Vec<Expr>) -> Vec<ExprRef> {
         v.into_iter().map(|x| self.add(x)).collect::<Vec<_>>()
+    }
+}
+
+impl Default for Context {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
