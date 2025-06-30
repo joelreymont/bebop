@@ -29,6 +29,10 @@ pub Ident: Loc<Ident> = {
 	Located<"ident"> => <>.map(Ident::new),
 };
 
+pub DisplayIdent: Loc<Ident> = {
+	Located<"display ident"> => <>.map(Ident::new),
+};
+
 pub Defs: Vec<Definition> = <Def+> => <>;
 
 pub Def: Definition = {
@@ -38,7 +42,8 @@ pub Def: Definition = {
 	Located<VarnodeDef> => Definition::Varnode(<>),
 	Located<TokenDef> => Definition::Token(<>),
 	Located<VarnodeAttachDef> => Definition::VarnodeAttach(<>),
-	Located<MacroDef> => Definition::Macro(<>)
+	Located<Macro> => Definition::Macro(<>),
+	Located<Constructor> => Definition::Constructor(<>),
 };
 
 pub EndianDef: Endian = {
@@ -114,13 +119,18 @@ pub VarnodeAttachDef: VarnodeAttach = {
 };
 
 pub Constructor: Constructor = {
-	<id:Ident> ":" <display:Display> <pat:Pattern>
-		<context:ConstructorContext> <body:ConstructorBody> => {
-			let pattern = ctx.add(pat);
-			let context = ctx.add_many(context);
-			let body = ctx.add_many(body);
-			Constructor { id, display, pattern, context, body }
-	  }
+	<start:ConstructorStart> <pat:Pattern?> <context:ConstructorContext> <body:ConstructorBody> => {
+		let (id, display) = start;
+		let pattern = pat.map(|x| ctx.add(x));
+		let context = ctx.add_many(context);
+		let body = ctx.add_many(body);
+		Constructor { id, display, pattern, context, body }
+	}
+};
+
+pub ConstructorStart: (Loc<Ident>, Display) = {
+	<Ident> ":" <Display> "is",
+	":" <DisplayIdent> <Display> "is",
 };
 
 pub Display: Display = {
@@ -132,19 +142,19 @@ pub Mnemonic: Vec<DisplayPiece> = {
 };
 
 pub Output: Vec<DisplayPiece> = {
-	<OutputPiece*> "is" => <>
+	<OutputPiece*> => <>
 };
 
 pub MnemonicPiece: DisplayPiece = {
 	"caret" => DisplayPiece::Caret,
-	<Ident> => DisplayPiece::Id(<>),
+	<DisplayIdent> => DisplayPiece::Id(<>),
 	<"text"> => DisplayPiece::Text(Ident::new(<>)),
 }
 
 pub OutputPiece: DisplayPiece = {
 	"caret" => DisplayPiece::Caret,
 	" " => DisplayPiece::Space,
-	<Ident> => DisplayPiece::Id(<>),
+	<DisplayIdent> => DisplayPiece::Id(<>),
 	<"text"> => DisplayPiece::Text(Ident::new(<>)),
 }
 
@@ -341,7 +351,7 @@ OpUnary: UnaryOp = {
 //
  
 ConstructorContext: Vec<Expr> = {
-	"["	<ContextStatement+> "]" => <>
+	"["	<ContextStatement*> "]" => <>
 };
 
 pub ContextStatement: Expr = {
@@ -350,11 +360,11 @@ pub ContextStatement: Expr = {
 };
 
 pub ConstructorBody: Vec<Expr> = {
-	"{"	<Statement+> "}" => <>,
+	"{"	<Statement*> "}" => <>,
 	"unimpl" => Vec::new(),
 };
 
-pub MacroDef: Macro = {
+pub Macro: Macro = {
 	"macro" <id:Ident> "(" <args:ArgNames> ")" "{" <body:Statement+> "}" =>
 		Macro { id, args, body: ctx.add_many(body) }
 };
@@ -501,6 +511,7 @@ extern {
     "dec int" => T::Normal(NT::DecInt(<usize>)),
     "hex int" => T::Normal(NT::HexInt(<usize>)),
     "ident" => T::Normal(NT::Ident(<&'input str>)),
+    "display ident" => T::Display(DT::Ident(<&'input str>)),
     "is" => T::Display(DT::Is),
     "if" => T::Normal(NT::If),
     "register" => T::Normal(NT::Register),

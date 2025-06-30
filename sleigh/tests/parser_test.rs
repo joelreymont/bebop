@@ -315,3 +315,86 @@ fn test_def_varnode_attach() -> Result<(), ParseError> {
     "#);
     Ok(())
 }
+
+#[test]
+fn test_ctr_start1() -> Result<(), ParseError> {
+    let s = r"foo: Rt is";
+    let lexer = Lexer::new(s);
+    let parser = grammar::ConstructorStartParser::new();
+    let mut context = Context::new();
+    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
+    assert_ron_snapshot!(ast, @r#"
+    (Tagged(
+      value: Ident("foo"),
+      tag: Span(
+        src: FileId([]),
+        range: (0, 3),
+      ),
+    ), Display(
+      mnemonic: [],
+      output: [
+        Id(Tagged(
+          value: Ident("Rt"),
+          tag: Span(
+            src: FileId([]),
+            range: (5, 7),
+          ),
+        )),
+        Space,
+      ],
+    ))
+    "#);
+    Ok(())
+}
+
+#[test]
+fn test_ctr_start2() -> Result<(), ParseError> {
+    let s = r":foo^bar Rt is";
+    let lexer = Lexer::new(s);
+    let parser = grammar::ConstructorStartParser::new();
+    let mut context = Context::new();
+    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
+    assert_ron_snapshot!(ast, @r#"
+    (Tagged(
+      value: Ident("foo"),
+      tag: Span(
+        src: FileId([]),
+        range: (1, 4),
+      ),
+    ), Display(
+      mnemonic: [
+        Caret,
+        Id(Tagged(
+          value: Ident("bar"),
+          tag: Span(
+            src: FileId([]),
+            range: (5, 8),
+          ),
+        )),
+      ],
+      output: [
+        Id(Tagged(
+          value: Ident("Rt"),
+          tag: Span(
+            src: FileId([]),
+            range: (9, 11),
+          ),
+        )),
+        Space,
+      ],
+    ))
+    "#);
+    Ok(())
+}
+
+#[test]
+fn test_ctr_no_mnemonic() -> Result<(), ParseError> {
+    let s = r"foo: Rt is unimpl";
+    let lexer = Lexer::new(s);
+    let parser = grammar::DefsParser::new();
+    let mut context = Context::new();
+    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
+    assert_ron_snapshot!(ast, @r#"
+    "#);
+    Ok(())
+}

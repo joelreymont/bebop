@@ -216,7 +216,7 @@ pub struct VarnodeAttach {
 pub struct Constructor {
     pub id: Loc<Ident>,
     pub display: Display,
-    pub pattern: ExprRef,
+    pub pattern: Option<ExprRef>,
     pub context: Vec<ExprRef>,
     pub body: Vec<ExprRef>,
 }

@@ -8,13 +8,15 @@ pub fn parse_number(base: u32, slice: &str) -> Result<usize, ParseIntError> {
     usize::from_str_radix(slice, base)
 }
 
-#[derive(Serialize, Debug, PartialEq, Clone, Logos)]
+#[derive(Serialize, Debug, PartialEq, Copy, Clone, Logos)]
 pub enum NormalToken<'input> {
     // Forbid lone carriage returns
     #[regex("\r[^\n]")]
     Error,
-    #[regex("((\r\n)+|[ \t\n]+)", logos::skip)]
+    #[regex("[ \t]+", logos::skip)]
     Ignored,
+    #[regex("(\r\n)+|(\n+)")]
+    NewLine,
     #[regex("[0-9]+", |lex| parse_number(10, lex.slice()).ok())]
     DecInt(usize),
     #[regex("0[bB][01]+", |lex| parse_number(2, &lex.slice()[2..]).ok())]
@@ -23,8 +25,6 @@ pub enum NormalToken<'input> {
     HexInt(usize),
     #[regex("[a-zA-Z_\\.]([a-zA-Z_\\.]|[0-9])*")]
     Ident(&'input str),
-    #[token("is", ignore(case))]
-    Is,
     #[token("if", ignore(case))]
     If,
     #[token("alignment", ignore(case))]
@@ -197,26 +197,26 @@ pub enum NormalToken<'input> {
     Comment,
 }
 
-#[derive(Serialize, Logos, Debug, PartialEq, Clone)]
+#[derive(Serialize, Logos, Debug, PartialEq, Copy, Clone)]
 pub enum DisplayToken<'input> {
     // Forbid lone carriage returns
     #[regex("\r[^\n]")]
     Error,
     #[regex("[a-zA-Z_\\.]([a-zA-Z_\\.]|[0-9])*")]
     Ident(&'input str),
-    #[regex("[^ a-zA-Z_\\.\\^][^ \\^]*")]
+    #[regex("[^ \ta-zA-Z_\\.\\^][^ \t\\^]*")]
     Text(&'input str),
     #[token("is")]
     Is,
     #[token("^")]
     Caret,
-    #[token(" ")]
+    #[regex("[ \t]+")]
     Whitespace,
     #[regex("((\r\n)+|[\t\n]+)", logos::skip, priority = 10)]
     Ignored,
 }
 
-#[derive(Serialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Debug, PartialEq, Copy, Clone)]
 pub enum Token<'input> {
     Normal(NormalToken<'input>),
     Display(DisplayToken<'input>),
@@ -243,22 +243,24 @@ impl<'input> Iterator for ModalLexer<'input> {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum Mode {
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum State {
     Normal,
+    NewLine,
+    MaybeDisplay,
     Display,
 }
 
 pub struct Lexer<'input> {
     pub lexer: Option<ModalLexer<'input>>,
-    pub mode: Mode,
+    pub state: State,
 }
 
 impl<'input> Lexer<'input> {
     pub fn new(s: &'input str) -> Self {
         Lexer {
             lexer: Some(ModalLexer::Normal(NormalToken::lexer(s))),
-            mode: Mode::Normal,
+            state: State::NewLine,
         }
     }
 
@@ -266,6 +268,7 @@ impl<'input> Lexer<'input> {
         match self.lexer.take() {
             Some(ModalLexer::Display(lexer)) => {
                 self.lexer = Some(ModalLexer::Normal(lexer.morph()));
+                self.state = State::Normal;
             }
             _ => panic!("lexer::switch_to_normal"),
         }
@@ -275,6 +278,7 @@ impl<'input> Lexer<'input> {
         match self.lexer.take() {
             Some(ModalLexer::Normal(lexer)) => {
                 self.lexer = Some(ModalLexer::Display(lexer.morph()));
+                self.state = State::Display;
             }
             _ => panic!("lexer::switch_to_display"),
         }
@@ -286,8 +290,7 @@ impl<'input> Lexer<'input> {
         token: NormalToken<'input>,
     ) -> Option<Result<SpannedToken<'input>, ParseError>> {
         match token {
-            NormalToken::Comment => return self.next(),
-            NormalToken::RBrace | NormalToken::Unimpl => self.switch_to_display(),
+            NormalToken::Comment | NormalToken::NewLine => return self.next(),
             NormalToken::Error => {
                 return Some(Err(ParseError::Lexical(LexicalError::Generic(
                     span.start, span.end,
@@ -304,17 +307,31 @@ impl<'input> Lexer<'input> {
         span: Range<usize>,
         token: DisplayToken<'input>,
     ) -> Option<Result<SpannedToken<'input>, ParseError>> {
-        match token {
-            DisplayToken::Is => self.switch_to_normal(),
-            DisplayToken::Error => {
-                return Some(Err(ParseError::Lexical(LexicalError::Generic(
-                    span.start, span.end,
-                ))))
-            }
-            _ => (),
-        };
-
+        if let DisplayToken::Error = token {
+            return Some(Err(ParseError::Lexical(LexicalError::Generic(
+                span.start, span.end,
+            ))));
+        }
         Some(Ok((span.start, Token::Display(token), span.end)))
+    }
+
+    fn update_state(&mut self, token: Token<'input>) {
+        use {DisplayToken as DT, NormalToken as NT, Token as T};
+        match (self.state, token) {
+            (State::Normal, T::Normal(NT::NewLine)) => self.state = State::NewLine,
+            (State::NewLine, T::Normal(NT::Ident(_))) => self.state = State::MaybeDisplay,
+            (State::NewLine, T::Normal(NT::Colon))
+            | (State::MaybeDisplay, T::Normal(NT::Colon)) => {
+                self.state = State::Display;
+                self.switch_to_display();
+            }
+            (State::Display, T::Display(DT::Is)) => {
+                self.state = State::Normal;
+                self.switch_to_normal();
+            }
+            (State::NewLine, _) | (State::MaybeDisplay, _) => self.state = State::Normal,
+            _ => (),
+        }
     }
 }
 
@@ -326,11 +343,13 @@ impl<'input> Iterator for Lexer<'input> {
             ModalLexer::Normal(lexer) => {
                 let token = lexer.next()?.unwrap_or(NormalToken::Error);
                 let span = lexer.span();
+                self.update_state(Token::Normal(token));
                 self.handle_normal_token(span, token)
             }
             ModalLexer::Display(lexer) => {
                 let token = lexer.next()?.unwrap_or(DisplayToken::Error);
                 let span = lexer.span();
+                self.update_state(Token::Display(token));
                 self.handle_display_token(span, token)
             }
         }

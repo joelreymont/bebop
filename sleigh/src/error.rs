@@ -21,6 +21,7 @@ pub enum ParseError {
 
     #[error("Unrecognized token")]
     UnrecognizedToken {
+        token: String,
         expected: Vec<String>,
         span: Range<usize>,
     },
@@ -39,9 +40,10 @@ impl From<LalrParseError<'_>> for ParseError {
             InvalidToken { location } => Self::InvalidToken { span: 0..location },
             UnrecognizedEof { location, .. } => Self::UnrecognizedEOF { span: 0..location },
             UnrecognizedToken {
-                token: (start, _, end),
+                token: (start, token, end),
                 expected,
             } => Self::UnrecognizedToken {
+                token: format!("{:?}", token),
                 expected,
                 span: start..end,
             },
