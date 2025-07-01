@@ -33,7 +33,7 @@ pub DisplayIdent: Loc<Ident> = {
 	Located<"display ident"> => <>.map(Ident::new),
 };
 
-pub Defs: Vec<Definition> = <Def+> => <>;
+pub Defs: Vec<Definition> = <Def+>;
 
 pub Def: Definition = {
 	Located<EndianDef> => Definition::Endian(<>),
@@ -46,23 +46,19 @@ pub Def: Definition = {
 	Located<Constructor> => Definition::Constructor(<>),
 };
 
-pub EndianDef: Endian = {
-	"define" "endian" "=" <Endian> ";" => <>
-};
+pub EndianDef: Endian = "define" "endian" "=" <Endian> ";";
 
 pub Endian: Endian = {
 	"big" => Endian::Big,
 	"little" => Endian::Little,
 }
 
-pub AlignmentDef: usize = {
-	"define" "alignment" "=" <Number> ";" => <>
-};
+pub AlignmentDef: usize = "define" "alignment" "=" <Number> ";";
 
 pub Number: usize = {
-	"dec int" => <>,
-	"hex int" => <>,
-	"bin int" => <>,
+	"dec int",
+	"hex int",
+	"bin int",
 };
 
 pub SpaceDef: Space = {
@@ -72,9 +68,7 @@ pub SpaceDef: Space = {
 		Space::new(id.map(|_| Ident::new("register")), kind, mods),
 };
 
-pub SpaceKind: SpaceKind = {
-  "type" "=" <space_kind> => <>,
-};
+pub SpaceKind: SpaceKind = "type" "=" <space_kind>;
 
 space_kind: SpaceKind = {
 	"rom space" => SpaceKind::Rom,
@@ -125,7 +119,7 @@ pub Constructor: Constructor = {
 		let context = ctx.add_many(context);
 		let body = ctx.add_many(body);
 		Constructor { id, display, pattern, context, body }
-	}
+	},
 };
 
 pub ConstructorStart: (Loc<Ident>, Display) = {
@@ -137,13 +131,9 @@ pub Display: Display = {
 	<mnemonic:Mnemonic> <output:Output> => Display { mnemonic, output },
 };
 
-pub Mnemonic: Vec<DisplayPiece> = {
-	<MnemonicPiece*> " " => <>
-};
+pub Mnemonic: Vec<DisplayPiece> = <MnemonicPiece*> " ";
 
-pub Output: Vec<DisplayPiece> = {
-	<OutputPiece*> => <>
-};
+pub Output: Vec<DisplayPiece> = <OutputPiece*>;
 
 pub MnemonicPiece: DisplayPiece = {
 	"caret" => DisplayPiece::Caret,
@@ -350,17 +340,15 @@ OpUnary: UnaryOp = {
 
 //
  
-ConstructorContext: Vec<Expr> = {
-	"["	<ContextStatement*> "]" => <>
+ConstructorContext: Vec<Expr> = "["	<ContextStatement*> "]";
+
+ContextStatement: Expr = {
+	<Assignment> ";",
+	<FunCall> ";",
 };
 
-pub ContextStatement: Expr = {
-	<Assignment> ";" => <>,
-	<FunCall> ";" => <>,
-};
-
-pub ConstructorBody: Vec<Expr> = {
-	"{"	<Statement*> "}" => <>,
+ConstructorBody: Vec<Expr> = {
+	"{"	<Statement*> "}",
 	"unimpl" => Vec::new(),
 };
 
@@ -371,15 +359,15 @@ pub Macro: Macro = {
 
 pub Statement: Expr = {
 	<Label> => Expr::Id(<>),
-	<Assignment> ";" => <>,
-	<Declaration> ";" => <>,
-	<FunCall> ";"	 => <>,
-	<Build> ";" => <>,
-	<Goto> ";" => <>,
-	<Branch> ";" => <>,
-	<Call> ";" => <>,
-	<Export> ";" => <>,
-	<Return> ";" => <>,
+	<Assignment> ";",
+	<Declaration> ";",
+	<FunCall> ";",
+	<Build> ";",
+	<Goto> ";",
+	<Branch> ";",
+	<Call> ";",
+	<Export> ";",
+	<Return> ";",
 };
 
 pub Assignment: Expr = {
@@ -448,7 +436,7 @@ pub JumpTarget: JumpTarget = {
 };
 
 LValue: Expr = {
-	<ExprBitRange> => <>,
+	<ExprBitRange>,
 	<id:ExprIdent> ":" <size:Number> => 
 		Expr::Sized { expr: ctx.add(id), size },
 	<ExprIdent>,
