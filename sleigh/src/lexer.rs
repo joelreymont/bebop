@@ -329,6 +329,7 @@ impl<'input> Lexer<'input> {
                 self.state = State::Normal;
                 self.switch_to_normal();
             }
+            (State::NewLine, T::Normal(NT::NewLine)) => (),
             (State::NewLine, _) | (State::MaybeDisplay, _) => self.state = State::Normal,
             _ => (),
         }

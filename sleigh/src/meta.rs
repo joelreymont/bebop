@@ -1,5 +1,5 @@
 use internment::Intern;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use std::{
     cmp::{Eq, Ord, Ordering, PartialEq, PartialOrd},
     fmt,
@@ -113,10 +113,19 @@ impl ariadne::Span for Span {
     }
 }
 
-#[derive(Copy, Clone, Serialize)]
+#[derive(Copy, Clone)]
 pub struct Tagged<V, T = ()> {
     value: V,
     tag: T,
+}
+
+impl<V: Serialize, T> Serialize for Tagged<V, T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.value.serialize(serializer)
+    }
 }
 
 impl<V, T> Tagged<V, T> {

@@ -1,7 +1,8 @@
-use crate::meta::*;
 use internment::Intern;
 use serde::Serialize;
 use std::{fmt, ops::Deref};
+
+use crate::meta::*;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 pub struct Ident(Intern<String>);
@@ -35,32 +36,6 @@ impl Deref for Ident {
 impl AsRef<String> for Ident {
     fn as_ref(&self) -> &'static String {
         self.0.as_ref()
-    }
-}
-
-pub struct Context {
-    expr_pool: ExprPool,
-}
-
-impl Context {
-    pub fn new() -> Self {
-        Self {
-            expr_pool: ExprPool::default(),
-        }
-    }
-
-    pub fn add(&mut self, expr: Expr) -> ExprRef {
-        self.expr_pool.add(expr)
-    }
-
-    pub fn add_many(&mut self, v: Vec<Expr>) -> Vec<ExprRef> {
-        v.into_iter().map(|x| self.add(x)).collect::<Vec<_>>()
-    }
-}
-
-impl Default for Context {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -216,9 +191,9 @@ pub struct VarnodeAttach {
 pub struct Constructor {
     pub id: Loc<Ident>,
     pub display: Display,
-    pub pattern: Option<ExprRef>,
-    pub context: Vec<ExprRef>,
-    pub body: Vec<ExprRef>,
+    pub pattern: Option<Expr>,
+    pub context: Vec<Expr>,
+    pub body: Vec<Expr>,
 }
 
 #[derive(Clone, PartialEq, Serialize)]
@@ -239,44 +214,24 @@ pub enum DisplayPiece {
 pub struct Macro {
     pub id: Loc<Ident>,
     pub args: Vec<Loc<Ident>>,
-    pub body: Vec<ExprRef>,
+    pub body: Vec<Expr>,
 }
 
-#[derive(Copy, Clone, PartialEq, Serialize, Debug)]
-pub struct ExprRef(usize);
-pub struct ExprPool(Vec<Expr>);
-
-impl ExprPool {
-    fn default() -> Self {
-        Self(Vec::with_capacity(10000))
-    }
-
-    pub fn get(&self, expr: ExprRef) -> &Expr {
-        &self.0[expr.0]
-    }
-
-    pub fn add(&mut self, expr: Expr) -> ExprRef {
-        let ix = self.0.len();
-        self.0.push(expr);
-        ExprRef(ix)
-    }
-}
-
-#[derive(Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Expr {
     Binary {
         op: BinaryOp,
-        lhs: ExprRef,
-        rhs: ExprRef,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
     },
     Unary {
         op: UnaryOp,
-        rhs: ExprRef,
+        rhs: Box<Expr>,
     },
-    Paren(ExprRef),
+    Paren(Box<Expr>),
     FunCall {
         id: Loc<Ident>,
-        args: Vec<ExprRef>,
+        args: Vec<Box<Expr>>,
     },
     BitRange {
         id: Loc<Ident>,
@@ -284,25 +239,25 @@ pub enum Expr {
         width: usize,
     },
     Sized {
-        expr: ExprRef,
+        expr: Box<Expr>,
         size: usize,
     },
     Pointer {
-        expr: ExprRef,
+        expr: Box<Expr>,
         space: Option<Loc<Ident>>,
     },
     Bind {
-        lhs: ExprRef,
-        rhs: ExprRef,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
     },
     Goto(JumpTarget),
     Call(JumpTarget),
     Return(JumpTarget),
     Branch {
-        condition: ExprRef,
+        condition: Box<Expr>,
         target: JumpTarget,
     },
-    Export(ExprRef),
+    Export(Box<Expr>),
     Label(Loc<Ident>),
     Build(Loc<Ident>),
     Id(Loc<Ident>),
@@ -317,7 +272,7 @@ pub enum JumpTarget {
         space: Option<Loc<Ident>>,
     },
     Direct(Loc<Ident>),
-    Indirect(ExprRef),
+    Indirect(Box<Expr>),
     Label(Loc<Ident>),
 }
 

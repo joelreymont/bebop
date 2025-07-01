@@ -5,7 +5,7 @@ use super::{
 	meta::*,
 };
 
-grammar<'input>(file_id: FileId, ctx: &mut Context);
+grammar<'input>(file_id: FileId);
 
 Located<T>: Loc<T> = <left: @L> <node: T> <right: @R> =>
 	Loc::new(node, Span::new(file_id, left..right));
@@ -22,7 +22,7 @@ Sep<T, S>: Vec<T> = {
 
 Infix<L, Op, R>: Expr = {
     <lhs:L> <op:Op> <rhs:R> => 
-			Expr::Binary { op, lhs: ctx.add(lhs), rhs: ctx.add(rhs) },
+			Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) },
 };
 
 pub Ident: Loc<Ident> = {
@@ -116,9 +116,6 @@ pub Constructor: Constructor = {
 	<start:ConstructorStart> <end:ConstructorEnd> => {
 		let (id, display) = start;
 		let (pattern, context, body) = end;
-		let pattern = pattern.map(|x| ctx.add(x));
-		let context = ctx.add_many(context);
-		let body = ctx.add_many(body);
 		Constructor { id, display, pattern, context, body }
 	},
 };
@@ -131,6 +128,7 @@ pub ConstructorStart: (Loc<Ident>, Display) = {
 pub ConstructorEnd: (Option<Expr>, Vec<Expr>, Vec<Expr>) = {
 	<p:Pattern?> "unimpl" => (p, Vec::new(), Vec::new()), 
 	<p:Pattern?> <c:ConstructorContext> "unimpl" => (p, c, Vec::new()), 
+	<p:Pattern?> <b:ConstructorBody> => (p, Vec::new(), b), 
 	<p:Pattern?> <c:ConstructorContext> <b:ConstructorBody> => (p, c, b), 
 };
 
@@ -162,9 +160,9 @@ pub OutputPiece: DisplayPiece = {
 pub Pattern: Expr = {
   #[precedence(level="0")] 
 	"..." <PatAtomic> =>
-		Expr::Unary { op: UnaryOp::AlignRight, rhs: ctx.add(<>) },
+		Expr::Unary { op: UnaryOp::AlignRight, rhs: Box::new(<>) },
 	<PatAtomic> "..." =>
-		Expr::Unary { op: UnaryOp::AlignLeft, rhs: ctx.add(<>) },
+		Expr::Unary { op: UnaryOp::AlignLeft, rhs: Box::new(<>) },
 	PatAtomic,
   #[precedence(level="1")] #[assoc(side="left")]
 	Infix<Pattern, OpPatAnd, Pattern>,	
@@ -177,8 +175,8 @@ pub Pattern: Expr = {
 PatAtomic: Expr = {
 	<ExprIdent>,
 	<lhs:ExprIdent> <op:PatCondOp> <rhs:PatExpr> =>
-		Expr::Binary { op, lhs: ctx.add(lhs), rhs: ctx.add(rhs) },
-	"(" <Pattern> ")" => Expr::Paren(ctx.add(<>)),
+		Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) },
+	"(" <Pattern> ")" => Expr::Paren(Box::new(<>)),
 };
 
 OpPatOr: BinaryOp = "|" => BinaryOp::Or;
@@ -199,7 +197,7 @@ pub PatExpr: Expr = {
 	FunCall,
 	PatExprTerm,
   #[precedence(level="1")] 
-	<op:PatExprOpUnary> <expr:PatExpr> => Expr::Unary { op, rhs: ctx.add(expr) },
+	<op:PatExprOpUnary> <expr:PatExpr> => Expr::Unary { op, rhs: Box::new(expr) },
   #[precedence(level="2")] #[assoc(side="left")]
 	Infix<PatExpr, PatExprOpMul, PatExpr>,
   #[precedence(level="3")] #[assoc(side="left")]
@@ -217,7 +215,7 @@ pub PatExpr: Expr = {
 PatExprTerm: Expr = {
 	<ExprIdent>,
 	<ExprNumber>,
-	"(" <PatExpr> ")" => Expr::Paren(ctx.add(<>)),
+	"(" <PatExpr> ")" => Expr::Paren(Box::new(<>)),
 };
 
 PatExprOpOr: BinaryOp = "$or" => BinaryOp::LogOr;
@@ -253,7 +251,7 @@ pub Expr: Expr = {
 	FunCall,
 	ExprTerm,	
   #[precedence(level="1")] 
-	<op:OpUnary> <expr:Expr> => Expr::Unary { op, rhs: ctx.add(expr) },
+	<op:OpUnary> <expr:Expr> => Expr::Unary { op, rhs: Box::new(expr) },
 	SizedPointer<Expr>,
   #[precedence(level="2")] #[assoc(side="left")]
 	Infix<Expr, OpMul, Expr>,
@@ -280,7 +278,7 @@ pub Expr: Expr = {
 ExprTerm: Expr = {
 	ExprVarnode,
 	ExprBitRange,
-	"(" <Expr> ")" => Expr::Paren(ctx.add(<>)),
+	"(" <Expr> ")" => Expr::Paren(Box::new(<>)),
 };
 
 OpBoolOr: BinaryOp = "||" => BinaryOp::Or;
@@ -358,7 +356,7 @@ ConstructorBody: Vec<Expr> = "{" <Statement*> "}";
 
 pub Macro: Macro = {
 	"macro" <id:Ident> "(" <args:ArgNames> ")" "{" <body:Statement+> "}" =>
-		Macro { id, args, body: ctx.add_many(body) }
+		Macro { id, args, body: body }
 };
 
 pub Statement: Expr = {
@@ -376,18 +374,18 @@ pub Statement: Expr = {
 
 pub Assignment: Expr = {
 	"local" <lhs:LValue> "=" <rhs:Expr> =>
-		Expr::Bind { lhs: ctx.add(lhs), rhs: ctx.add(rhs) },
+		Expr::Bind { lhs: Box::new(lhs), rhs: Box::new(rhs) },
 	<lhs:LValue> "=" <rhs:Expr> =>
-		Expr::Bind { lhs: ctx.add(lhs), rhs: ctx.add(rhs) },
+		Expr::Bind { lhs: Box::new(lhs), rhs: Box::new(rhs) },
 };
 
 pub Declaration: Expr = {
 	"local" <id:ExprIdent> ":" <size:Number> => {
-		let rhs = Expr::Sized { expr: ctx.add(Expr::Unit), size };
-		Expr::Bind { lhs: ctx.add(id), rhs: ctx.add(rhs)}
+		let rhs = Expr::Sized { expr: Box::new(Expr::Unit), size };
+		Expr::Bind { lhs: Box::new(id), rhs: Box::new(rhs)}
 	},
 	"local" <id:ExprIdent> => {
-		Expr::Bind { lhs: ctx.add(id), rhs: ctx.add(Expr::Unit) }
+		Expr::Bind { lhs: Box::new(id), rhs: Box::new(Expr::Unit) }
 	}
 		
 };
@@ -398,7 +396,7 @@ pub Build: Expr = {
 
 pub FunCall: Expr = {
 	<id:Ident> "("	<args:Args> ")" =>
-		Expr::FunCall { id, args: ctx.add_many(args) }
+		Expr::FunCall { id, args: args.into_iter().map(|x| Box::new(x)).collect() }
 };
 
 pub Goto: Expr = {
@@ -407,7 +405,7 @@ pub Goto: Expr = {
 
 pub Branch: Expr = {
 	"if" <expr:Expr> "goto" <target:JumpTarget> => {
-		let condition = ctx.add(expr);
+		let condition = Box::new(expr);
 		Expr::Branch { condition, target }
 	},
 };
@@ -417,8 +415,8 @@ pub Call: Expr = {
 };
 
 pub Export: Expr = {
-	"export" <ExprVarnode> => Expr::Export(ctx.add(<>)),
-	"export" <SizedPointer<ExprIdent>> => Expr::Export(ctx.add(<>)),
+	"export" <ExprVarnode> => Expr::Export(Box::new(<>)),
+	"export" <SizedPointer<ExprIdent>> => Expr::Export(Box::new(<>)),
 };
 
 pub Return: Expr = {
@@ -433,7 +431,7 @@ pub JumpTarget: JumpTarget = {
 	<Ident> =>
 		JumpTarget::Direct(<>),
 	"[" <Expr> "]" => {
-		let expr = ctx.add(<>);
+		let expr = Box::new(<>);
 		JumpTarget::Indirect(expr)
 	},
 	<Label> => JumpTarget::Label(<>),
@@ -442,7 +440,7 @@ pub JumpTarget: JumpTarget = {
 LValue: Expr = {
 	<ExprBitRange>,
 	<id:ExprIdent> ":" <size:Number> => 
-		Expr::Sized { expr: ctx.add(id), size },
+		Expr::Sized { expr: Box::new(id), size },
 	<ExprIdent>,
 	SizedPointer<Expr>,
 };
@@ -456,9 +454,9 @@ pub ExprVarnode: Expr = {
 	<ExprNumber>,
 	<ExprIdent>,
 	<id:ExprIdent> ":" <size:Number> => 
-		Expr::Sized { expr: ctx.add(id), size },
+		Expr::Sized { expr: Box::new(id), size },
 	<n:ExprNumber> ":" <size:Number> => 
-		Expr::Sized { expr: ctx.add(n), size },
+		Expr::Sized { expr: Box::new(n), size },
 };
 
 pub Label: Loc<Ident> = "<" <Ident> ">";
@@ -470,24 +468,19 @@ pub Args: Vec<Expr> = Sep<Expr, ",">;
 
 SizedPointer<T>: Expr = {
 	"*" "[" <space:Ident> "]" ":" <size:Number> <expr:T> => {
-		let expr = ctx.add(expr);
-		let ptr = Expr::Pointer { expr, space: Some(space) };
-		let ptr = ctx.add(ptr);
-		Expr::Sized { expr, size }
+		let expr = Box::new(expr);
+		let expr = Expr::Pointer { expr, space: Some(space) };
+		Expr::Sized { expr: Box::new(expr), size }
 	},
 	"*" "[" <space:Ident> "]" <expr:T> => {
-		let expr = ctx.add(expr);
-		Expr::Pointer { expr, space: Some(space) }
+		Expr::Pointer { expr: Box::new(expr), space: Some(space) }
 	},
 	"*" ":" <size:Number> <expr:T> => {
-		let expr = ctx.add(expr);
-		let ptr = Expr::Pointer { expr, space: None };
-		let ptr = ctx.add(ptr);
-		Expr::Sized { expr, size }
+		let expr = Expr::Pointer { expr: Box::new(expr), space: None };
+		Expr::Sized { expr: Box::new(expr), size }
 	},
 	"*" <expr:T> => {
-		let expr = ctx.add(expr);
-		Expr::Pointer { expr, space: None }
+		Expr::Pointer { expr: Box::new(expr), space: None }
 	},
 };
 

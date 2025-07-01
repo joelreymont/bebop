@@ -1,4 +1,4 @@
-use bebop_sleigh::{ast::Context, error::*, grammar, lexer::*, meta::*};
+use bebop_sleigh::{error::*, grammar, lexer::*, meta::*};
 use insta::*;
 
 #[test]
@@ -8,17 +8,10 @@ fn test_def_endian() -> Result<(), ParseError> {
     ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
-    let mut context = Context::new();
-    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
+    let ast = parser.parse(FileId::empty(), lexer)?;
     assert_ron_snapshot!(ast, @r"
     [
-      Endian(Tagged(
-        value: Big,
-        tag: Span(
-          src: FileId([]),
-          range: (7, 27),
-        ),
-      )),
+      Endian(Big),
     ]
     ");
     Ok(())
@@ -31,17 +24,10 @@ fn test_def_alignment() -> Result<(), ParseError> {
     ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
-    let mut context = Context::new();
-    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
+    let ast = parser.parse(FileId::empty(), lexer)?;
     assert_ron_snapshot!(ast, @r"
     [
-      Alignment(Tagged(
-        value: 512,
-        tag: Span(
-          src: FileId([]),
-          range: (7, 32),
-        ),
-      )),
+      Alignment(512),
     ]
     ");
     Ok(())
@@ -54,28 +40,15 @@ fn test_def_space1() -> Result<(), ParseError> {
     ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
-    let mut context = Context::new();
-    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
+    let ast = parser.parse(FileId::empty(), lexer)?;
     assert_ron_snapshot!(ast, @r#"
     [
-      Space(Tagged(
-        value: Space(
-          id: Tagged(
-            value: Ident("ram"),
-            tag: Span(
-              src: FileId([]),
-              range: (20, 23),
-            ),
-          ),
-          kind: Ram,
-          size: 4,
-          word_size: 1,
-          is_default: true,
-        ),
-        tag: Span(
-          src: FileId([]),
-          range: (7, 65),
-        ),
+      Space(Space(
+        id: Ident("ram"),
+        kind: Ram,
+        size: 4,
+        word_size: 1,
+        is_default: true,
       )),
     ]
     "#);
@@ -89,28 +62,15 @@ fn test_def_space2() -> Result<(), ParseError> {
     ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
-    let mut context = Context::new();
-    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
+    let ast = parser.parse(FileId::empty(), lexer)?;
     assert_ron_snapshot!(ast, @r#"
     [
-      Space(Tagged(
-        value: Space(
-          id: Tagged(
-            value: Ident("register"),
-            tag: Span(
-              src: FileId([]),
-              range: (20, 28),
-            ),
-          ),
-          kind: Register,
-          size: 4,
-          word_size: 1,
-          is_default: true,
-        ),
-        tag: Span(
-          src: FileId([]),
-          range: (7, 56),
-        ),
+      Space(Space(
+        id: Ident("register"),
+        kind: Register,
+        size: 4,
+        word_size: 1,
+        is_default: true,
       )),
     ]
     "#);
@@ -125,49 +85,18 @@ fn test_def_register() -> Result<(), ParseError> {
     ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
-    let mut context = Context::new();
-    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
+    let ast = parser.parse(FileId::empty(), lexer)?;
     assert_ron_snapshot!(ast, @r#"
     [
-      Varnode(Tagged(
-        value: Varnode(
-          offset: 256,
-          size: 4,
-          ids: [
-            Tagged(
-              value: Ident("r0"),
-              tag: Span(
-                src: FileId([]),
-                range: (50, 52),
-              ),
-            ),
-            Tagged(
-              value: Ident("r1"),
-              tag: Span(
-                src: FileId([]),
-                range: (53, 55),
-              ),
-            ),
-            Tagged(
-              value: Ident("r2"),
-              tag: Span(
-                src: FileId([]),
-                range: (56, 58),
-              ),
-            ),
-            Tagged(
-              value: Ident("r3"),
-              tag: Span(
-                src: FileId([]),
-                range: (59, 61),
-              ),
-            ),
-          ],
-        ),
-        tag: Span(
-          src: FileId([]),
-          range: (7, 63),
-        ),
+      Varnode(Varnode(
+        offset: 256,
+        size: 4,
+        ids: [
+          Ident("r0"),
+          Ident("r1"),
+          Ident("r2"),
+          Ident("r3"),
+        ],
       )),
     ]
     "#);
@@ -185,66 +114,35 @@ fn test_def_token() -> Result<(), ParseError> {
     ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
-    let mut context = Context::new();
-    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
+    let ast = parser.parse(FileId::empty(), lexer)?;
     assert_ron_snapshot!(ast, @r#"
     [
-      Token(Tagged(
-        value: Token(
-          id: Tagged(
-            value: Ident("instr32"),
-            tag: Span(
-              src: FileId([]),
-              range: (20, 27),
-            ),
+      Token(Token(
+        id: Ident("instr32"),
+        bit_width: 32,
+        fields: [
+          Field(
+            id: Ident("OpSz"),
+            start_bit: 31,
+            end_bit: 31,
+            is_signed: false,
+            is_hex: false,
           ),
-          bit_width: 32,
-          fields: [
-            Field(
-              id: Tagged(
-                value: Ident("OpSz"),
-                tag: Span(
-                  src: FileId([]),
-                  range: (42, 46),
-                ),
-              ),
-              start_bit: 31,
-              end_bit: 31,
-              is_signed: false,
-              is_hex: false,
-            ),
-            Field(
-              id: Tagged(
-                value: Ident("Opc"),
-                tag: Span(
-                  src: FileId([]),
-                  range: (75, 78),
-                ),
-              ),
-              start_bit: 25,
-              end_bit: 30,
-              is_signed: true,
-              is_hex: false,
-            ),
-            Field(
-              id: Tagged(
-                value: Ident("Rt"),
-                tag: Span(
-                  src: FileId([]),
-                  range: (115, 117),
-                ),
-              ),
-              start_bit: 20,
-              end_bit: 24,
-              is_signed: false,
-              is_hex: true,
-            ),
-          ],
-        ),
-        tag: Span(
-          src: FileId([]),
-          range: (7, 149),
-        ),
+          Field(
+            id: Ident("Opc"),
+            start_bit: 25,
+            end_bit: 30,
+            is_signed: true,
+            is_hex: false,
+          ),
+          Field(
+            id: Ident("Rt"),
+            start_bit: 20,
+            end_bit: 24,
+            is_signed: false,
+            is_hex: true,
+          ),
+        ],
       )),
     ]
     "#);
@@ -260,56 +158,19 @@ fn test_def_varnode_attach() -> Result<(), ParseError> {
     ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
-    let mut context = Context::new();
-    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
+    let ast = parser.parse(FileId::empty(), lexer)?;
     assert_ron_snapshot!(ast, @r#"
     [
-      VarnodeAttach(Tagged(
-        value: VarnodeAttach(
-          fields: [
-            Tagged(
-              value: Ident("Rt"),
-              tag: Span(
-                src: FileId([]),
-                range: (25, 27),
-              ),
-            ),
-            Tagged(
-              value: Ident("Rs"),
-              tag: Span(
-                src: FileId([]),
-                range: (28, 30),
-              ),
-            ),
-          ],
-          registers: [
-            Tagged(
-              value: Ident("r0"),
-              tag: Span(
-                src: FileId([]),
-                range: (44, 46),
-              ),
-            ),
-            Tagged(
-              value: Ident("_"),
-              tag: Span(
-                src: FileId([]),
-                range: (47, 48),
-              ),
-            ),
-            Tagged(
-              value: Ident("r1"),
-              tag: Span(
-                src: FileId([]),
-                range: (49, 51),
-              ),
-            ),
-          ],
-        ),
-        tag: Span(
-          src: FileId([]),
-          range: (7, 60),
-        ),
+      VarnodeAttach(VarnodeAttach(
+        fields: [
+          Ident("Rt"),
+          Ident("Rs"),
+        ],
+        registers: [
+          Ident("r0"),
+          Ident("_"),
+          Ident("r1"),
+        ],
       )),
     ]
     "#);
@@ -321,25 +182,12 @@ fn test_ctr_start1() -> Result<(), ParseError> {
     let s = r"foo: Rt is";
     let lexer = Lexer::new(s);
     let parser = grammar::ConstructorStartParser::new();
-    let mut context = Context::new();
-    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
+    let ast = parser.parse(FileId::empty(), lexer)?;
     assert_ron_snapshot!(ast, @r#"
-    (Tagged(
-      value: Ident("foo"),
-      tag: Span(
-        src: FileId([]),
-        range: (0, 3),
-      ),
-    ), Display(
+    (Ident("foo"), Display(
       mnemonic: [],
       output: [
-        Id(Tagged(
-          value: Ident("Rt"),
-          tag: Span(
-            src: FileId([]),
-            range: (5, 7),
-          ),
-        )),
+        Id(Ident("Rt")),
         Space,
       ],
     ))
@@ -352,34 +200,15 @@ fn test_ctr_start2() -> Result<(), ParseError> {
     let s = r":foo^bar Rt is";
     let lexer = Lexer::new(s);
     let parser = grammar::ConstructorStartParser::new();
-    let mut context = Context::new();
-    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
+    let ast = parser.parse(FileId::empty(), lexer)?;
     assert_ron_snapshot!(ast, @r#"
-    (Tagged(
-      value: Ident("foo"),
-      tag: Span(
-        src: FileId([]),
-        range: (1, 4),
-      ),
-    ), Display(
+    (Ident("foo"), Display(
       mnemonic: [
         Caret,
-        Id(Tagged(
-          value: Ident("bar"),
-          tag: Span(
-            src: FileId([]),
-            range: (5, 8),
-          ),
-        )),
+        Id(Ident("bar")),
       ],
       output: [
-        Id(Tagged(
-          value: Ident("Rt"),
-          tag: Span(
-            src: FileId([]),
-            range: (9, 11),
-          ),
-        )),
+        Id(Ident("Rt")),
         Space,
       ],
     ))
@@ -392,40 +221,197 @@ fn test_ctr_no_mnemonic() -> Result<(), ParseError> {
     let s = r"foo: Rt is unimpl";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
-    let mut context = Context::new();
-    let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
+    let ast = parser.parse(FileId::empty(), lexer)?;
     assert_ron_snapshot!(ast, @r#"
     [
-      Constructor(Tagged(
-        value: Constructor(
-          id: Tagged(
-            value: Ident("foo"),
-            tag: Span(
-              src: FileId([]),
-              range: (0, 3),
+      Constructor(Constructor(
+        id: Ident("foo"),
+        display: Display(
+          mnemonic: [],
+          output: [
+            Id(Ident("Rt")),
+            Space,
+          ],
+        ),
+        pattern: None,
+        context: [],
+        body: [],
+      )),
+    ]
+    "#);
+    Ok(())
+}
+
+#[test]
+fn test_constructor1() -> Result<(), ParseError> {
+    let s = r"
+        :bse is OpSz=0 & Opc=0b100001 & Rt & Ra & Rb & Alu2Mod=0b0000 & Sub6=0b001100 unimpl
+    ";
+    let lexer = Lexer::new(s);
+    let parser = grammar::DefsParser::new();
+    let ast = parser.parse(FileId::empty(), lexer)?;
+    assert_ron_snapshot!(ast, @r#"
+    [
+      Constructor(Constructor(
+        id: Ident("bse"),
+        display: Display(
+          mnemonic: [],
+          output: [],
+        ),
+        pattern: Some(Binary(
+          op: And,
+          lhs: Binary(
+            op: And,
+            lhs: Binary(
+              op: And,
+              lhs: Binary(
+                op: And,
+                lhs: Binary(
+                  op: And,
+                  lhs: Binary(
+                    op: And,
+                    lhs: Binary(
+                      op: Equal,
+                      lhs: Id(Ident("OpSz")),
+                      rhs: Int(0),
+                    ),
+                    rhs: Binary(
+                      op: Equal,
+                      lhs: Id(Ident("Opc")),
+                      rhs: Int(33),
+                    ),
+                  ),
+                  rhs: Id(Ident("Rt")),
+                ),
+                rhs: Id(Ident("Ra")),
+              ),
+              rhs: Id(Ident("Rb")),
+            ),
+            rhs: Binary(
+              op: Equal,
+              lhs: Id(Ident("Alu2Mod")),
+              rhs: Int(0),
             ),
           ),
-          display: Display(
-            mnemonic: [],
-            output: [
-              Id(Tagged(
-                value: Ident("Rt"),
-                tag: Span(
-                  src: FileId([]),
-                  range: (5, 7),
-                ),
-              )),
-              Space,
-            ],
+          rhs: Binary(
+            op: Equal,
+            lhs: Id(Ident("Sub6")),
+            rhs: Int(12),
           ),
-          pattern: None,
-          context: [],
-          body: [],
+        )),
+        context: [],
+        body: [],
+      )),
+    ]
+    "#);
+    Ok(())
+}
+
+#[test]
+fn test_constructor2() -> Result<(), ParseError> {
+    let s = r"
+        :fmtsr FRt, FSa is FOpSz=0 & COP=0b110101 & FRt & FSa & MxCP=0b1001 { FSa = FRt; } 
+    ";
+    let lexer = Lexer::new(s);
+    let parser = grammar::DefsParser::new();
+    let ast = parser.parse(FileId::empty(), lexer)?;
+    assert_ron_snapshot!(ast, @r#"
+    [
+      Constructor(Constructor(
+        id: Ident("fmtsr"),
+        display: Display(
+          mnemonic: [],
+          output: [
+            Id(Ident("FRt")),
+            Text(Ident(",")),
+            Space,
+            Id(Ident("FSa")),
+            Space,
+          ],
         ),
-        tag: Span(
-          src: FileId([]),
-          range: (0, 17),
+        pattern: Some(Binary(
+          op: And,
+          lhs: Binary(
+            op: And,
+            lhs: Binary(
+              op: And,
+              lhs: Binary(
+                op: And,
+                lhs: Binary(
+                  op: Equal,
+                  lhs: Id(Ident("FOpSz")),
+                  rhs: Int(0),
+                ),
+                rhs: Binary(
+                  op: Equal,
+                  lhs: Id(Ident("COP")),
+                  rhs: Int(53),
+                ),
+              ),
+              rhs: Id(Ident("FRt")),
+            ),
+            rhs: Id(Ident("FSa")),
+          ),
+          rhs: Binary(
+            op: Equal,
+            lhs: Id(Ident("MxCP")),
+            rhs: Int(9),
+          ),
+        )),
+        context: [],
+        body: [
+          Bind(
+            lhs: Id(Ident("FSa")),
+            rhs: Id(Ident("FRt")),
+          ),
+        ],
+      )),
+    ]
+    "#);
+    Ok(())
+}
+
+#[test]
+fn test_constructor3() -> Result<(), ParseError> {
+    let s = r"
+        :ADC OP1     is (cc=1 & aaa=3) ... & OP1 unimpl
+    ";
+    let lexer = Lexer::new(s);
+    let parser = grammar::DefsParser::new();
+    let ast = parser.parse(FileId::empty(), lexer)?;
+    assert_ron_snapshot!(ast, @r#"
+    [
+      Constructor(Constructor(
+        id: Ident("ADC"),
+        display: Display(
+          mnemonic: [],
+          output: [
+            Id(Ident("OP1")),
+            Space,
+          ],
         ),
+        pattern: Some(Binary(
+          op: And,
+          lhs: Unary(
+            op: AlignLeft,
+            rhs: Paren(Binary(
+              op: And,
+              lhs: Binary(
+                op: Equal,
+                lhs: Id(Ident("cc")),
+                rhs: Int(1),
+              ),
+              rhs: Binary(
+                op: Equal,
+                lhs: Id(Ident("aaa")),
+                rhs: Int(3),
+              ),
+            )),
+          ),
+          rhs: Id(Ident("OP1")),
+        )),
+        context: [],
+        body: [],
       )),
     ]
     "#);
