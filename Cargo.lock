@@ -58,13 +58,26 @@ checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
 name = "bebop"
 version = "0.1.0"
 dependencies = [
- "bebop_sleigh",
+ "bebop-sleigh-parser",
  "internment",
  "logos",
 ]
 
 [[package]]
-name = "bebop_sleigh"
+name = "bebop-sleigh-compiler"
+version = "0.1.0"
+dependencies = [
+ "ariadne",
+ "bebop-sleigh-parser",
+ "insta",
+ "internment",
+ "ron 0.8.1",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "bebop-sleigh-parser"
 version = "0.1.0"
 dependencies = [
  "ariadne",

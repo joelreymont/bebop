@@ -144,7 +144,7 @@ impl Space {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Serialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
 pub enum SpaceKind {
     Rom,
     Ram,
