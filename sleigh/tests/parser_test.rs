@@ -395,6 +395,39 @@ fn test_ctr_no_mnemonic() -> Result<(), ParseError> {
     let mut context = Context::new();
     let ast = parser.parse(FileId::empty(), &mut context, lexer)?;
     assert_ron_snapshot!(ast, @r#"
+    [
+      Constructor(Tagged(
+        value: Constructor(
+          id: Tagged(
+            value: Ident("foo"),
+            tag: Span(
+              src: FileId([]),
+              range: (0, 3),
+            ),
+          ),
+          display: Display(
+            mnemonic: [],
+            output: [
+              Id(Tagged(
+                value: Ident("Rt"),
+                tag: Span(
+                  src: FileId([]),
+                  range: (5, 7),
+                ),
+              )),
+              Space,
+            ],
+          ),
+          pattern: None,
+          context: [],
+          body: [],
+        ),
+        tag: Span(
+          src: FileId([]),
+          range: (0, 17),
+        ),
+      )),
+    ]
     "#);
     Ok(())
 }

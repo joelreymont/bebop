@@ -113,9 +113,10 @@ pub VarnodeAttachDef: VarnodeAttach = {
 };
 
 pub Constructor: Constructor = {
-	<start:ConstructorStart> <pat:Pattern?> <context:ConstructorContext> <body:ConstructorBody> => {
+	<start:ConstructorStart> <end:ConstructorEnd> => {
 		let (id, display) = start;
-		let pattern = pat.map(|x| ctx.add(x));
+		let (pattern, context, body) = end;
+		let pattern = pattern.map(|x| ctx.add(x));
 		let context = ctx.add_many(context);
 		let body = ctx.add_many(body);
 		Constructor { id, display, pattern, context, body }
@@ -125,6 +126,12 @@ pub Constructor: Constructor = {
 pub ConstructorStart: (Loc<Ident>, Display) = {
 	<Ident> ":" <Display> "is",
 	":" <DisplayIdent> <Display> "is",
+};
+
+pub ConstructorEnd: (Option<Expr>, Vec<Expr>, Vec<Expr>) = {
+	<p:Pattern?> "unimpl" => (p, Vec::new(), Vec::new()), 
+	<p:Pattern?> <c:ConstructorContext> "unimpl" => (p, c, Vec::new()), 
+	<p:Pattern?> <c:ConstructorContext> <b:ConstructorBody> => (p, c, b), 
 };
 
 pub Display: Display = {
@@ -347,10 +354,7 @@ ContextStatement: Expr = {
 	<FunCall> ";",
 };
 
-ConstructorBody: Vec<Expr> = {
-	"{"	<Statement*> "}",
-	"unimpl" => Vec::new(),
-};
+ConstructorBody: Vec<Expr> = "{" <Statement*> "}";
 
 pub Macro: Macro = {
 	"macro" <id:Ident> "(" <args:ArgNames> ")" "{" <body:Statement+> "}" =>
