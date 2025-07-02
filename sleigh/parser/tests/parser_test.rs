@@ -1,4 +1,5 @@
-use bebop_sleigh_parser::{error::*, grammar, lexer::*, meta::*};
+use bebop_sleigh_parser::{error::*, grammar, lexer::*};
+use bebop_sleigh_util::meta::*;
 use insta::*;
 
 #[test]
@@ -90,7 +91,7 @@ fn test_def_register() -> Result<(), ParseError> {
     [
       Varnode(Varnode(
         offset: 256,
-        size: 4,
+        byte_size: 4,
         ids: [
           Ident("r0"),
           Ident("r1"),
@@ -110,7 +111,7 @@ fn test_def_token() -> Result<(), ParseError> {
           OpSz        = (31, 31)
           Opc         = (25, 30) signed
           Rt          = (20, 24) hex
-      ;    
+      ;
     ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
@@ -190,7 +191,7 @@ fn test_ctr_start1() -> Result<(), ParseError> {
         Id(Ident("Rt")),
         Space,
       ],
-    ))
+    ), false)
     "#);
     Ok(())
 }
@@ -211,7 +212,7 @@ fn test_ctr_start2() -> Result<(), ParseError> {
         Id(Ident("Rt")),
         Space,
       ],
-    ))
+    ), true)
     "#);
     Ok(())
 }
@@ -236,6 +237,7 @@ fn test_ctr_no_mnemonic() -> Result<(), ParseError> {
         pattern: None,
         context: [],
         body: [],
+        is_instruction: false,
       )),
     ]
     "#);
@@ -259,24 +261,24 @@ fn test_constructor1() -> Result<(), ParseError> {
           output: [],
         ),
         pattern: Some(Binary(
-          op: And,
+          op: AND,
           lhs: Binary(
-            op: And,
+            op: AND,
             lhs: Binary(
-              op: And,
+              op: AND,
               lhs: Binary(
-                op: And,
+                op: AND,
                 lhs: Binary(
-                  op: And,
+                  op: AND,
                   lhs: Binary(
-                    op: And,
+                    op: AND,
                     lhs: Binary(
-                      op: Equal,
+                      op: EQ,
                       lhs: Id(Ident("OpSz")),
                       rhs: Int(0),
                     ),
                     rhs: Binary(
-                      op: Equal,
+                      op: EQ,
                       lhs: Id(Ident("Opc")),
                       rhs: Int(33),
                     ),
@@ -288,19 +290,20 @@ fn test_constructor1() -> Result<(), ParseError> {
               rhs: Id(Ident("Rb")),
             ),
             rhs: Binary(
-              op: Equal,
+              op: EQ,
               lhs: Id(Ident("Alu2Mod")),
               rhs: Int(0),
             ),
           ),
           rhs: Binary(
-            op: Equal,
+            op: EQ,
             lhs: Id(Ident("Sub6")),
             rhs: Int(12),
           ),
         )),
         context: [],
         body: [],
+        is_instruction: true,
       )),
     ]
     "#);
@@ -310,7 +313,7 @@ fn test_constructor1() -> Result<(), ParseError> {
 #[test]
 fn test_constructor2() -> Result<(), ParseError> {
     let s = r"
-        :fmtsr FRt, FSa is FOpSz=0 & COP=0b110101 & FRt & FSa & MxCP=0b1001 { FSa = FRt; } 
+        :fmtsr FRt, FSa is FOpSz=0 & COP=0b110101 & FRt & FSa & MxCP=0b1001 { FSa = FRt; }
     ";
     let lexer = Lexer::new(s);
     let parser = grammar::DefsParser::new();
@@ -330,20 +333,20 @@ fn test_constructor2() -> Result<(), ParseError> {
           ],
         ),
         pattern: Some(Binary(
-          op: And,
+          op: AND,
           lhs: Binary(
-            op: And,
+            op: AND,
             lhs: Binary(
-              op: And,
+              op: AND,
               lhs: Binary(
-                op: And,
+                op: AND,
                 lhs: Binary(
-                  op: Equal,
+                  op: EQ,
                   lhs: Id(Ident("FOpSz")),
                   rhs: Int(0),
                 ),
                 rhs: Binary(
-                  op: Equal,
+                  op: EQ,
                   lhs: Id(Ident("COP")),
                   rhs: Int(53),
                 ),
@@ -353,7 +356,7 @@ fn test_constructor2() -> Result<(), ParseError> {
             rhs: Id(Ident("FSa")),
           ),
           rhs: Binary(
-            op: Equal,
+            op: EQ,
             lhs: Id(Ident("MxCP")),
             rhs: Int(9),
           ),
@@ -365,6 +368,7 @@ fn test_constructor2() -> Result<(), ParseError> {
             rhs: Id(Ident("FRt")),
           ),
         ],
+        is_instruction: true,
       )),
     ]
     "#);
@@ -391,18 +395,18 @@ fn test_constructor3() -> Result<(), ParseError> {
           ],
         ),
         pattern: Some(Binary(
-          op: And,
+          op: AND,
           lhs: Unary(
             op: AlignLeft,
             rhs: Paren(Binary(
-              op: And,
+              op: AND,
               lhs: Binary(
-                op: Equal,
+                op: EQ,
                 lhs: Id(Ident("cc")),
                 rhs: Int(1),
               ),
               rhs: Binary(
-                op: Equal,
+                op: EQ,
                 lhs: Id(Ident("aaa")),
                 rhs: Int(3),
               ),
@@ -412,6 +416,7 @@ fn test_constructor3() -> Result<(), ParseError> {
         )),
         context: [],
         body: [],
+        is_instruction: true,
       )),
     ]
     "#);

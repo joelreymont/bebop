@@ -2,7 +2,7 @@ use internment::Intern;
 use serde::Serialize;
 use std::{fmt, ops::Deref};
 
-use crate::meta::*;
+use bebop_sleigh_util::meta::*;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 pub struct Ident(Intern<String>);
@@ -43,13 +43,13 @@ impl AsRef<String> for Ident {
 pub enum Definition {
     Endian(Loc<Endian>),
     Alignment(Loc<usize>),
-    Token(Loc<Token>),
-    Space(Loc<Space>),
+    Token(Token),
+    Space(Space),
     Varnode(Loc<Varnode>),
     PCodeOp(Loc<Ident>),
     VarnodeAttach(Loc<VarnodeAttach>),
-    Constructor(Loc<Constructor>),
-    Macro(Loc<Macro>),
+    Constructor(Constructor),
+    Macro(Macro),
 }
 
 #[derive(Copy, Clone, PartialEq, Serialize)]
@@ -70,7 +70,7 @@ impl fmt::Display for Endian {
 #[derive(Clone, PartialEq, Serialize)]
 pub struct Token {
     pub id: Loc<Ident>,
-    pub bit_width: usize,
+    pub bit_width: Loc<usize>,
     pub fields: Vec<Field>,
 }
 
@@ -83,14 +83,19 @@ pub enum FieldMod {
 #[derive(Copy, Clone, PartialEq, Serialize)]
 pub struct Field {
     pub id: Loc<Ident>,
-    pub start_bit: usize,
-    pub end_bit: usize,
+    pub start_bit: Loc<usize>,
+    pub end_bit: Loc<usize>,
     pub is_signed: bool,
     pub is_hex: bool,
 }
 
 impl Field {
-    pub fn new(id: Loc<Ident>, start_bit: usize, end_bit: usize, mods: Vec<FieldMod>) -> Self {
+    pub fn new(
+        id: Loc<Ident>,
+        start_bit: Loc<usize>,
+        end_bit: Loc<usize>,
+        mods: Vec<FieldMod>,
+    ) -> Self {
         let this = Self {
             id,
             start_bit,
@@ -110,8 +115,8 @@ impl Field {
 
 #[derive(Copy, Clone, PartialEq, Serialize)]
 pub enum SpaceMod {
-    Size(usize),
-    WordSize(usize),
+    Size(Loc<usize>),
+    WordSize(Loc<usize>),
     IsDefault,
 }
 
@@ -119,8 +124,8 @@ pub enum SpaceMod {
 pub struct Space {
     pub id: Loc<Ident>,
     pub kind: SpaceKind,
-    pub size: usize,
-    pub word_size: usize,
+    pub size: Loc<usize>,
+    pub word_size: Loc<usize>,
     pub is_default: bool,
 }
 
@@ -129,8 +134,8 @@ impl Space {
         let this = Self {
             id,
             kind,
-            size: 0,
-            word_size: 1,
+            size: Loc::new(0, Span::empty()),
+            word_size: Loc::new(1, Span::empty()),
             is_default: true,
         };
         mods.into_iter().fold(this, |mut this, m| {
@@ -153,14 +158,14 @@ pub enum SpaceKind {
 
 #[derive(Copy, Clone, PartialEq, Serialize)]
 pub enum VarnodeMod {
-    Size(usize),
-    Offset(usize),
+    ByteSize(Loc<usize>),
+    Offset(Loc<usize>),
 }
 
 #[derive(Clone, PartialEq, Serialize)]
 pub struct Varnode {
-    pub offset: usize,
-    pub size: usize,
+    pub offset: Loc<usize>,
+    pub byte_size: Loc<usize>,
     pub ids: Vec<Loc<Ident>>,
 }
 
@@ -168,12 +173,12 @@ impl Varnode {
     pub fn new(ids: Vec<Loc<Ident>>, mods: Vec<VarnodeMod>) -> Self {
         let this = Self {
             ids,
-            size: 0,
-            offset: 0,
+            byte_size: Loc::new(0, Span::empty()),
+            offset: Loc::new(0, Span::empty()),
         };
         mods.into_iter().fold(this, |mut this, m| {
             match m {
-                VarnodeMod::Size(n) => this.size = n,
+                VarnodeMod::ByteSize(n) => this.byte_size = n,
                 VarnodeMod::Offset(n) => this.offset = n,
             }
             this
@@ -192,8 +197,9 @@ pub struct Constructor {
     pub id: Loc<Ident>,
     pub display: Display,
     pub pattern: Option<Expr>,
-    pub context: Vec<Expr>,
-    pub body: Vec<Expr>,
+    pub context: Vec<Statement>,
+    pub body: Vec<Statement>,
+    pub is_instruction: bool,
 }
 
 #[derive(Clone, PartialEq, Serialize)]
@@ -214,18 +220,18 @@ pub enum DisplayPiece {
 pub struct Macro {
     pub id: Loc<Ident>,
     pub args: Vec<Loc<Ident>>,
-    pub body: Vec<Expr>,
+    pub body: Vec<Statement>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Expr {
     Binary {
-        op: BinaryOp,
+        op: Loc<BinaryOp>,
         lhs: Box<Expr>,
         rhs: Box<Expr>,
     },
     Unary {
-        op: UnaryOp,
+        op: Loc<UnaryOp>,
         rhs: Box<Expr>,
     },
     Paren(Box<Expr>),
@@ -235,53 +241,70 @@ pub enum Expr {
     },
     BitRange {
         id: Loc<Ident>,
-        start_bit: usize,
-        width: usize,
+        start_bit: Loc<usize>,
+        bit_width: Loc<usize>,
     },
     Sized {
         expr: Box<Expr>,
-        size: usize,
+        size: Loc<usize>,
     },
     Pointer {
         expr: Box<Expr>,
         space: Option<Loc<Ident>>,
     },
-    Bind {
-        lhs: Box<Expr>,
-        rhs: Box<Expr>,
-    },
+    Id(Loc<Ident>),
+    Int(Loc<usize>),
+    Unit(Loc<()>),
+}
+
+impl Expr {
+    pub fn span(&self) -> &Span {
+        use Expr::*;
+        match self {
+            Binary { lhs, .. } => lhs.span(),
+            Unary { rhs, .. } => rhs.span(),
+            Paren(expr) => expr.span(),
+            FunCall { id, .. } => id.tag(),
+            BitRange { id, .. } => id.tag(),
+            Sized { expr, .. } => expr.span(),
+            Pointer { expr, .. } => expr.span(),
+            Id(id) => id.tag(),
+            Int(n) => n.tag(),
+            Unit(x) => x.tag(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum Statement {
+    Bind { lhs: Expr, rhs: Expr },
     Goto(JumpTarget),
     Call(JumpTarget),
     Return(JumpTarget),
-    Branch {
-        condition: Box<Expr>,
-        target: JumpTarget,
-    },
-    Export(Box<Expr>),
+    Branch { condition: Expr, target: JumpTarget },
+    FunCall { id: Loc<Ident>, args: Vec<Expr> },
+    Export(Expr),
     Label(Loc<Ident>),
     Build(Loc<Ident>),
-    Id(Loc<Ident>),
-    Int(usize),
-    Unit,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum JumpTarget {
     Fixed {
-        address: usize,
+        address: Loc<usize>,
         space: Option<Loc<Ident>>,
     },
     Direct(Loc<Ident>),
-    Indirect(Box<Expr>),
+    Indirect(Expr),
     Label(Loc<Ident>),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum UnaryOp {
-    Not,
-    Neg,
-    FloatNeg,
-    Inv,
+    NOT,
+    NEG,
+    FNEG,
+    INV,
     AlignLeft,
     AlignRight,
 }
@@ -289,10 +312,10 @@ pub enum UnaryOp {
 impl fmt::Display for UnaryOp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::Neg => write!(f, "-"),
-            Self::FloatNeg => write!(f, "f-"),
-            Self::Not => write!(f, "!"),
-            Self::Inv => write!(f, "~"),
+            Self::NEG => write!(f, "-"),
+            Self::FNEG => write!(f, "f-"),
+            Self::NOT => write!(f, "!"),
+            Self::INV => write!(f, "~"),
             Self::AlignLeft | Self::AlignRight => write!(f, "..."),
         }
     }
@@ -300,88 +323,87 @@ impl fmt::Display for UnaryOp {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub enum BinaryOp {
-    Or,
-    And,
-    Xor,
-    LogOr,
-    LogAnd,
-    LogXor,
-    Equal,
-    NotEqual,
-    FloatEqual,
-    FloatNotEqual,
-    Less,
-    Greater,
-    LessEqual,
-    GreaterEqual,
-    SignedLess,
-    SignedGreater,
-    SignedLessEqual,
-    SignedGreaterEqual,
-    FloatLess,
-    FloatGreater,
-    FloatLessEqual,
-    FloatGreaterEqual,
-    ShiftLeft,
-    ShiftRight,
-    SignedShiftLeft,
-    SignedShiftRight,
-    Plus,
-    Minus,
-    FloatPlus,
-    FloatMinus,
-    Mul,
-    Div,
-    Mod,
-    SignedDiv,
-    SignedMod,
-    FloatMul,
-    FloatDiv,
-    //
-    Join,
+    OR,
+    AND,
+    XOR,
+    LOR,
+    LAND,
+    LXOR,
+    EQ,
+    NE,
+    FEQ,
+    FNE,
+    LT,
+    GT,
+    LE,
+    GE,
+    SLT,
+    SGT,
+    SLE,
+    SGE,
+    FLT,
+    FGT,
+    FLE,
+    FGE,
+    LSHIFT,
+    RSHIFT,
+    SLSHIFT,
+    SRSHIFT,
+    PLUS,
+    MINUS,
+    FPLUS,
+    FMINUS,
+    MUL,
+    DIV,
+    MOD,
+    SDIV,
+    SMOD,
+    FMUL,
+    FDIV,
+    JOIN,
 }
 
 impl fmt::Display for BinaryOp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::Or => write!(f, "|"),
-            Self::And => write!(f, "&"),
-            Self::Xor => write!(f, "^"),
-            Self::LogOr => write!(f, "||"),
-            Self::LogAnd => write!(f, "&&"),
-            Self::LogXor => write!(f, "^^"),
-            Self::Equal => write!(f, "=="),
-            Self::NotEqual => write!(f, "!="),
-            Self::FloatEqual => write!(f, "f=="),
-            Self::FloatNotEqual => write!(f, "f!="),
-            Self::Less => write!(f, "<"),
-            Self::Greater => write!(f, ">"),
-            Self::LessEqual => write!(f, "<="),
-            Self::GreaterEqual => write!(f, ">="),
-            Self::SignedLess => write!(f, "s<"),
-            Self::SignedGreater => write!(f, "s>"),
-            Self::SignedLessEqual => write!(f, "s<="),
-            Self::SignedGreaterEqual => write!(f, "s>="),
-            Self::FloatLess => write!(f, "f<"),
-            Self::FloatGreater => write!(f, "f>"),
-            Self::FloatLessEqual => write!(f, "f<="),
-            Self::FloatGreaterEqual => write!(f, "f>="),
-            Self::ShiftLeft => write!(f, "<<"),
-            Self::ShiftRight => write!(f, ">>"),
-            Self::SignedShiftLeft => write!(f, "s<<"),
-            Self::SignedShiftRight => write!(f, "s>>"),
-            Self::Plus => write!(f, "+"),
-            Self::Minus => write!(f, "-"),
-            Self::FloatPlus => write!(f, "f+"),
-            Self::FloatMinus => write!(f, "f-"),
-            Self::Mul => write!(f, "*"),
-            Self::Div => write!(f, "/"),
-            Self::Mod => write!(f, "%"),
-            Self::SignedDiv => write!(f, "s/"),
-            Self::SignedMod => write!(f, "s%"),
-            Self::FloatMul => write!(f, "f*"),
-            Self::FloatDiv => write!(f, "f/"),
-            Self::Join => write!(f, ";"),
+            Self::OR => write!(f, "|"),
+            Self::AND => write!(f, "&"),
+            Self::XOR => write!(f, "^"),
+            Self::LOR => write!(f, "||"),
+            Self::LAND => write!(f, "&&"),
+            Self::LXOR => write!(f, "^^"),
+            Self::EQ => write!(f, "=="),
+            Self::NE => write!(f, "!="),
+            Self::FEQ => write!(f, "f=="),
+            Self::FNE => write!(f, "f!="),
+            Self::LT => write!(f, "<"),
+            Self::GT => write!(f, ">"),
+            Self::LE => write!(f, "<="),
+            Self::GE => write!(f, ">="),
+            Self::SLT => write!(f, "s<"),
+            Self::SGT => write!(f, "s>"),
+            Self::SLE => write!(f, "s<="),
+            Self::SGE => write!(f, "s>="),
+            Self::FLT => write!(f, "f<"),
+            Self::FGT => write!(f, "f>"),
+            Self::FLE => write!(f, "f<="),
+            Self::FGE => write!(f, "f>="),
+            Self::LSHIFT => write!(f, "<<"),
+            Self::RSHIFT => write!(f, ">>"),
+            Self::SLSHIFT => write!(f, "s<<"),
+            Self::SRSHIFT => write!(f, "s>>"),
+            Self::PLUS => write!(f, "+"),
+            Self::MINUS => write!(f, "-"),
+            Self::FPLUS => write!(f, "f+"),
+            Self::FMINUS => write!(f, "f-"),
+            Self::MUL => write!(f, "*"),
+            Self::DIV => write!(f, "/"),
+            Self::MOD => write!(f, "%"),
+            Self::SDIV => write!(f, "s/"),
+            Self::SMOD => write!(f, "s%"),
+            Self::FMUL => write!(f, "f*"),
+            Self::FDIV => write!(f, "f/"),
+            Self::JOIN => write!(f, ";"),
         }
     }
 }

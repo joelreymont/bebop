@@ -69,6 +69,7 @@ version = "0.1.0"
 dependencies = [
  "ariadne",
  "bebop-sleigh-parser",
+ "bebop-sleigh-util",
  "insta",
  "internment",
  "ron 0.8.1",
@@ -81,12 +82,24 @@ name = "bebop-sleigh-parser"
 version = "0.1.0"
 dependencies = [
  "ariadne",
+ "bebop-sleigh-util",
  "insta",
  "internment",
  "lalrpop",
  "lalrpop-util",
  "logos",
+ "num-traits",
  "ron 0.8.1",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "bebop-sleigh-util"
+version = "0.1.0"
+dependencies = [
+ "ariadne",
+ "internment",
  "serde",
  "thiserror",
 ]
@@ -414,6 +427,15 @@ name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
+
+[[package]]
+name = "num-traits"
+version = "0.2.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
+dependencies = [
+ "autocfg",
+]
 
 [[package]]
 name = "once_cell"

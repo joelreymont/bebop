@@ -1,0 +1,10 @@
+[package]
+name = "bebop-sleigh-util"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+internment = { version = "0.8", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+ariadne = "0.5.1"
+thiserror = "2.0.12"

@@ -1,8 +1,8 @@
+use bebop_sleigh_util::meta::*;
 use super::{
 	ast::*,
 	error::ParseError,
 	lexer::{Token as T, NormalToken as NT, DisplayToken as DT},
-	meta::*,
 };
 
 grammar<'input>(file_id: FileId);
@@ -21,7 +21,7 @@ Sep<T, S>: Vec<T> = {
 };
 
 Infix<L, Op, R>: Expr = {
-    <lhs:L> <op:Op> <rhs:R> => 
+    <lhs:L> <op:Op> <rhs:R> =>
 			Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) },
 };
 
@@ -37,13 +37,13 @@ pub Defs: Vec<Definition> = <Def+>;
 
 pub Def: Definition = {
 	Located<EndianDef> => Definition::Endian(<>),
-	Located<AlignmentDef> => Definition::Alignment(<>),
-	Located<SpaceDef> => Definition::Space(<>),
+	AlignmentDef => Definition::Alignment(<>),
+	SpaceDef => Definition::Space(<>),
 	Located<VarnodeDef> => Definition::Varnode(<>),
-	Located<TokenDef> => Definition::Token(<>),
+	TokenDef => Definition::Token(<>),
 	Located<VarnodeAttachDef> => Definition::VarnodeAttach(<>),
-	Located<Macro> => Definition::Macro(<>),
-	Located<Constructor> => Definition::Constructor(<>),
+	Macro => Definition::Macro(<>),
+	Constructor => Definition::Constructor(<>),
 };
 
 pub EndianDef: Endian = "define" "endian" "=" <Endian> ";";
@@ -53,12 +53,12 @@ pub Endian: Endian = {
 	"little" => Endian::Little,
 }
 
-pub AlignmentDef: usize = "define" "alignment" "=" <Number> ";";
+pub AlignmentDef: Loc<usize> = "define" "alignment" "=" <Number> ";";
 
-pub Number: usize = {
-	"dec int",
-	"hex int",
-	"bin int",
+pub Number: Loc<usize> = {
+	Located<"dec int">,
+	Located<"hex int">,
+	Located<"bin int">,
 };
 
 pub SpaceDef: Space = {
@@ -88,7 +88,7 @@ pub VarnodeDef: Varnode = {
 };
 
 VarnodeMod: VarnodeMod = {
-	"size" "=" <Number> => VarnodeMod::Size(<>),
+	"size" "=" <Number> => VarnodeMod::ByteSize(<>),
 	"offset" "=" <Number> => VarnodeMod::Offset(<>),
 };
 
@@ -114,22 +114,22 @@ pub VarnodeAttachDef: VarnodeAttach = {
 
 pub Constructor: Constructor = {
 	<start:ConstructorStart> <end:ConstructorEnd> => {
-		let (id, display) = start;
+		let (id, display, is_instruction) = start;
 		let (pattern, context, body) = end;
-		Constructor { id, display, pattern, context, body }
+		Constructor { id, display, pattern, context, body, is_instruction }
 	},
 };
 
-pub ConstructorStart: (Loc<Ident>, Display) = {
-	<Ident> ":" <Display> "is",
-	":" <DisplayIdent> <Display> "is",
+pub ConstructorStart: (Loc<Ident>, Display, bool) = {
+	<i:Ident> ":" <d:Display> "is" => (i, d, false),
+	":" <i:DisplayIdent> <d:Display> "is" => (i, d, true),
 };
 
-pub ConstructorEnd: (Option<Expr>, Vec<Expr>, Vec<Expr>) = {
-	<p:Pattern?> "unimpl" => (p, Vec::new(), Vec::new()), 
-	<p:Pattern?> <c:ConstructorContext> "unimpl" => (p, c, Vec::new()), 
-	<p:Pattern?> <b:ConstructorBody> => (p, Vec::new(), b), 
-	<p:Pattern?> <c:ConstructorContext> <b:ConstructorBody> => (p, c, b), 
+pub ConstructorEnd: (Option<Expr>, Vec<Statement>, Vec<Statement>) = {
+	<p:Pattern?> "unimpl" => (p, Vec::new(), Vec::new()),
+	<p:Pattern?> <c:ConstructorContext> "unimpl" => (p, c, Vec::new()),
+	<p:Pattern?> <b:ConstructorBody> => (p, Vec::new(), b),
+	<p:Pattern?> <c:ConstructorContext> <b:ConstructorBody> => (p, c, b),
 };
 
 pub Display: Display = {
@@ -155,21 +155,21 @@ pub OutputPiece: DisplayPiece = {
 
 //
 // Bit pattern
-// 
+//
 
 pub Pattern: Expr = {
-  #[precedence(level="0")] 
-	"..." <PatAtomic> =>
-		Expr::Unary { op: UnaryOp::AlignRight, rhs: Box::new(<>) },
-	<PatAtomic> "..." =>
-		Expr::Unary { op: UnaryOp::AlignLeft, rhs: Box::new(<>) },
+  #[precedence(level="0")]
+	<op:Located<"...">> <pat:PatAtomic> =>
+		Expr::Unary { op: op.map(|_| UnaryOp::AlignRight), rhs: Box::new(pat) },
+	<pat:PatAtomic> <op:Located<"...">> =>
+		Expr::Unary { op: op.map(|_| UnaryOp::AlignLeft), rhs: Box::new(pat) },
 	PatAtomic,
   #[precedence(level="1")] #[assoc(side="left")]
-	Infix<Pattern, OpPatAnd, Pattern>,	
+	Infix<Pattern, OpPatAnd, Pattern>,
   #[precedence(level="2")] #[assoc(side="left")]
-	Infix<Pattern, OpPatSeq, Pattern>,	
+	Infix<Pattern, OpPatSeq, Pattern>,
   #[precedence(level="2")] #[assoc(side="left")]
-	Infix<Pattern, OpPatOr, Pattern>,	
+	Infix<Pattern, OpPatOr, Pattern>,
 };
 
 PatAtomic: Expr = {
@@ -179,24 +179,24 @@ PatAtomic: Expr = {
 	"(" <Pattern> ")" => Expr::Paren(Box::new(<>)),
 };
 
-OpPatOr: BinaryOp = "|" => BinaryOp::Or;
-OpPatSeq: BinaryOp = ";" => BinaryOp::Join;
-OpPatAnd: BinaryOp = "&" => BinaryOp::And;
+OpPatOr: Loc<BinaryOp> = Located<"|"> => <>.map(|_| BinaryOp::OR);
+OpPatSeq: Loc<BinaryOp> = Located<";"> => <>.map(|_| BinaryOp::JOIN);
+OpPatAnd: Loc<BinaryOp> = Located<"&"> => <>.map(|_| BinaryOp::AND);
 
-PatCondOp: BinaryOp = {
-	"=" => BinaryOp::Equal,
-	"!=" => BinaryOp::NotEqual,
-	"<" => BinaryOp::Less,
-	">" => BinaryOp::Greater,
-	"<=" => BinaryOp::LessEqual,
-	">=" => BinaryOp::GreaterEqual,
+PatCondOp: Loc<BinaryOp> = {
+	Located<"="> => <>.map(|_| BinaryOp::EQ),
+	Located<"!="> => <>.map(|_| BinaryOp::NE),
+	Located<"<"> => <>.map(|_| BinaryOp::LT),
+	Located<">"> => <>.map(|_| BinaryOp::GT),
+	Located<"<="> => <>.map(|_| BinaryOp::LE),
+	Located<">="> => <>.map(|_| BinaryOp::GE),
 };
 
 pub PatExpr: Expr = {
-  #[precedence(level="0")] 
+  #[precedence(level="0")]
 	FunCall,
 	PatExprTerm,
-  #[precedence(level="1")] 
+  #[precedence(level="1")]
 	<op:PatExprOpUnary> <expr:PatExpr> => Expr::Unary { op, rhs: Box::new(expr) },
   #[precedence(level="2")] #[assoc(side="left")]
 	Infix<PatExpr, PatExprOpMul, PatExpr>,
@@ -218,28 +218,28 @@ PatExprTerm: Expr = {
 	"(" <PatExpr> ")" => Expr::Paren(Box::new(<>)),
 };
 
-PatExprOpOr: BinaryOp = "$or" => BinaryOp::LogOr;
-PatExprOpXor: BinaryOp = "$xor" => BinaryOp::LogXor;
-PatExprOpAnd: BinaryOp = "$and" => BinaryOp::LogAnd;
+PatExprOpOr: Loc<BinaryOp> = Located<"$or"> => <>.map(|_| BinaryOp::LOR);
+PatExprOpXor: Loc<BinaryOp> = Located<"$xor"> => <>.map(|_| BinaryOp::LXOR);
+PatExprOpAnd: Loc<BinaryOp> = Located<"$and"> => <>.map(|_| BinaryOp::LAND);
 
-PatExprOpShift: BinaryOp = {
-	"<<" => BinaryOp::ShiftLeft,
-	">>" => BinaryOp::ShiftRight,
+PatExprOpShift: Loc<BinaryOp> = {
+	Located<"<<"> => <>.map(|_| BinaryOp::LSHIFT),
+	Located<">>"> => <>.map(|_| BinaryOp::RSHIFT),
 };
 
-PatExprOpAdd: BinaryOp = {
-	"+" => BinaryOp::Plus,
-	"-" => BinaryOp::Minus,
+PatExprOpAdd: Loc<BinaryOp> = {
+	Located<"+"> => <>.map(|_| BinaryOp::PLUS),
+	Located<"-"> => <>.map(|_| BinaryOp::MINUS),
 };
 
-PatExprOpMul: BinaryOp = {
-	"*" => BinaryOp::Plus,
-	"/" => BinaryOp::Minus,
+PatExprOpMul: Loc<BinaryOp> = {
+	Located<"*"> => <>.map(|_| BinaryOp::PLUS),
+	Located<"/"> => <>.map(|_| BinaryOp::MINUS),
 };
 
-PatExprOpUnary: UnaryOp = {
-	"-" => UnaryOp::Neg,
-	"~" => UnaryOp::Inv,
+PatExprOpUnary: Loc<UnaryOp> = {
+	Located<"-"> => <>.map(|_| UnaryOp::NEG),
+	Located<"~"> => <>.map(|_| UnaryOp::INV),
 };
 
 //
@@ -249,8 +249,8 @@ PatExprOpUnary: UnaryOp = {
 pub Expr: Expr = {
   #[precedence(level="0")]
 	FunCall,
-	ExprTerm,	
-  #[precedence(level="1")] 
+	ExprTerm,
+  #[precedence(level="1")]
 	<op:OpUnary> <expr:Expr> => Expr::Unary { op, rhs: Box::new(expr) },
 	SizedPointer<Expr>,
   #[precedence(level="2")] #[assoc(side="left")]
@@ -259,7 +259,7 @@ pub Expr: Expr = {
 	Infix<Expr, OpAdd, Expr>,
   #[precedence(level="4")] #[assoc(side="left")]
 	Infix<Expr, OpShift, Expr>,
-  #[precedence(level="5")] #[assoc(side="left")] 
+  #[precedence(level="5")] #[assoc(side="left")]
 	Infix<Expr, OpComp, Expr>,
   #[precedence(level="6")] #[assoc(side="left")]
 	Infix<Expr, OpEq, Expr>,
@@ -281,89 +281,89 @@ ExprTerm: Expr = {
 	"(" <Expr> ")" => Expr::Paren(Box::new(<>)),
 };
 
-OpBoolOr: BinaryOp = "||" => BinaryOp::Or;
-OpBoolAnd: BinaryOp = {
-	"&&" => BinaryOp::And,
-	"^^" => BinaryOp::Xor,
+OpBoolOr: Loc<BinaryOp> = Located<"||"> => <>.map(|_| BinaryOp::OR);
+OpBoolAnd: Loc<BinaryOp> = {
+	Located<"&&"> => <>.map(|_| BinaryOp::AND),
+	Located<"^^"> => <>.map(|_| BinaryOp::XOR),
 };
 
-OpOr: BinaryOp = "|" => BinaryOp::LogOr;
-OpXor: BinaryOp = "^" => BinaryOp::LogXor;
-OpAnd: BinaryOp = "&" => BinaryOp::LogAnd;
+OpOr: Loc<BinaryOp> = Located<"|"> => <>.map(|_| BinaryOp::LOR);
+OpXor: Loc<BinaryOp> = Located<"^"> => <>.map(|_| BinaryOp::LXOR);
+OpAnd: Loc<BinaryOp> = Located<"&"> => <>.map(|_| BinaryOp::LAND);
 
-OpEq: BinaryOp = {
-	"==" => BinaryOp::Equal,
-	"!=" => BinaryOp::NotEqual,
-	"f==" => BinaryOp::FloatEqual,
-	"f!=" => BinaryOp::FloatNotEqual,
+OpEq: Loc<BinaryOp> = {
+	Located<"=="> => <>.map(|_| BinaryOp::EQ),
+	Located<"!="> => <>.map(|_| BinaryOp::NE),
+	Located<"f=="> => <>.map(|_| BinaryOp::FEQ),
+	Located<"f!="> => <>.map(|_| BinaryOp::FNE),
 };
 
-OpComp: BinaryOp = {
-	"<"	 => BinaryOp::Less,
-	">" => BinaryOp::Greater,
-	"<="	 => BinaryOp::LessEqual,
-	">=" => BinaryOp::GreaterEqual,
-	"s<"	 => BinaryOp::SignedLess,
-	"s>" => BinaryOp::SignedGreater,
-	"s<="	 => BinaryOp::SignedLessEqual,
-	"s>=" => BinaryOp::SignedGreaterEqual,
-	"f<"	 => BinaryOp::FloatLess,
-	"f>" => BinaryOp::FloatGreater,
-	"f<="	 => BinaryOp::FloatLessEqual,
-	"f>=" => BinaryOp::FloatGreaterEqual,
+OpComp: Loc<BinaryOp> = {
+	Located<"<"> => <>.map(|_| BinaryOp::LT),
+	Located<">"> => <>.map(|_| BinaryOp::GT),
+	Located<"<="> => <>.map(|_| BinaryOp::LE),
+	Located<">="> => <>.map(|_| BinaryOp::GE),
+	Located<"s<"> => <>.map(|_| BinaryOp::SLT),
+	Located<"s>"> => <>.map(|_| BinaryOp::SGE),
+	Located<"s<="> => <>.map(|_| BinaryOp::SLE),
+	Located<"s>="> => <>.map(|_| BinaryOp::SGE),
+	Located<"f<"> => <>.map(|_| BinaryOp::FLT),
+	Located<"f>"> => <>.map(|_| BinaryOp::FGT),
+	Located<"f<="> => <>.map(|_| BinaryOp::FLE),
+	Located<"f>="> => <>.map(|_| BinaryOp::FGE),
 };
 
-OpShift: BinaryOp = {
-	"<<" => BinaryOp::ShiftLeft,
-	">>" => BinaryOp::ShiftRight,
-	"s>>" => BinaryOp::SignedShiftRight,
+OpShift: Loc<BinaryOp> = {
+	Located<"<<"> => <>.map(|_| BinaryOp::LSHIFT),
+	Located<">>"> => <>.map(|_| BinaryOp::RSHIFT),
+	Located<"s>>"> => <>.map(|_| BinaryOp::SRSHIFT),
 }
 
-OpAdd: BinaryOp = {
-	"+" => BinaryOp::Plus,
-	"-" => BinaryOp::Minus,
-	"f+" => BinaryOp::FloatPlus,
-	"f-" => BinaryOp::FloatMinus,
+OpAdd: Loc<BinaryOp> = {
+	Located<"+"> => <>.map(|_| BinaryOp::PLUS),
+	Located<"-"> => <>.map(|_| BinaryOp::MINUS),
+	Located<"f+"> => <>.map(|_| BinaryOp::FPLUS),
+	Located<"f-"> => <>.map(|_| BinaryOp::FMINUS),
 };
 
-OpMul: BinaryOp = {
-	"*" => BinaryOp::Mul,
-	"/" => BinaryOp::Div,
-	"%"	=> BinaryOp::Mod,
-	"s/" => BinaryOp::SignedDiv,
-	"s%"	=> BinaryOp::SignedMod,
-	"f*" => BinaryOp::FloatMul,
-	"f/" => BinaryOp::FloatDiv,
+OpMul: Loc<BinaryOp> = {
+	Located<"*"> => <>.map(|_| BinaryOp::MUL),
+	Located<"/"> => <>.map(|_| BinaryOp::DIV),
+	Located<"%"> => <>.map(|_| BinaryOp::MOD),
+	Located<"s/"> => <>.map(|_| BinaryOp::SDIV),
+	Located<"s%"> => <>.map(|_| BinaryOp::SMOD),
+	Located<"f*"> => <>.map(|_| BinaryOp::FMUL),
+	Located<"f/"> => <>.map(|_| BinaryOp::FDIV),
 };
 
-OpUnary: UnaryOp = {
-	"!" => UnaryOp::Not,
-	"~" => UnaryOp::Inv,
-	"-" => UnaryOp::Neg,
-	"f-" => UnaryOp::FloatNeg,
+OpUnary: Loc<UnaryOp> = {
+	Located<"!"> => <>.map(|_| UnaryOp::NOT),
+	Located<"~"> => <>.map(|_| UnaryOp::INV),
+	Located<"-"> => <>.map(|_| UnaryOp::NEG),
+	Located<"f-"> => <>.map(|_| UnaryOp::FNEG),
 };
 
 //
- 
-ConstructorContext: Vec<Expr> = "["	<ContextStatement*> "]";
 
-ContextStatement: Expr = {
+ConstructorContext: Vec<Statement> = "["	<ContextStatement*> "]";
+
+ContextStatement: Statement = {
 	<Assignment> ";",
-	<FunCall> ";",
+	<FunCallStmt> ";",
 };
 
-ConstructorBody: Vec<Expr> = "{" <Statement*> "}";
+ConstructorBody: Vec<Statement> = "{" <Statement*> "}";
 
 pub Macro: Macro = {
 	"macro" <id:Ident> "(" <args:ArgNames> ")" "{" <body:Statement+> "}" =>
 		Macro { id, args, body: body }
 };
 
-pub Statement: Expr = {
-	<Label> => Expr::Id(<>),
+pub Statement: Statement = {
+	<Label> => Statement::Label(<>),
 	<Assignment> ";",
 	<Declaration> ";",
-	<FunCall> ";",
+	<FunCallStmt> ";",
 	<Build> ";",
 	<Goto> ";",
 	<Branch> ";",
@@ -372,90 +372,87 @@ pub Statement: Expr = {
 	<Return> ";",
 };
 
-pub Assignment: Expr = {
-	"local" <lhs:LValue> "=" <rhs:Expr> =>
-		Expr::Bind { lhs: Box::new(lhs), rhs: Box::new(rhs) },
-	<lhs:LValue> "=" <rhs:Expr> =>
-		Expr::Bind { lhs: Box::new(lhs), rhs: Box::new(rhs) },
+pub Assignment: Statement = {
+	"local" <lhs:LValue> "=" <rhs:Expr> => Statement::Bind { lhs, rhs },
+	<lhs:LValue> "=" <rhs:Expr> => Statement::Bind { lhs, rhs },
 };
 
-pub Declaration: Expr = {
-	"local" <id:ExprIdent> ":" <size:Number> => {
-		let rhs = Expr::Sized { expr: Box::new(Expr::Unit), size };
-		Expr::Bind { lhs: Box::new(id), rhs: Box::new(rhs)}
+pub Declaration: Statement = {
+	"local" <left:@L> <lhs:ExprIdent> <right:@R> ":" <size:Number> => {
+	    let unit = Expr::Unit(Loc::new((), Span::new(file_id, left..right)));
+		let rhs = Expr::Sized { expr: Box::new(unit), size };
+		Statement::Bind { lhs, rhs }
 	},
-	"local" <id:ExprIdent> => {
-		Expr::Bind { lhs: Box::new(id), rhs: Box::new(Expr::Unit) }
+	"local" <left:@L> <lhs:ExprIdent> <right:@R> => {
+	    let unit = Expr::Unit(Loc::new((), Span::new(file_id, left..right)));
+		Statement::Bind { lhs, rhs: unit }
 	}
-		
+
 };
 
-pub Build: Expr = {
-	"build" <Ident> => Expr::Build(<>),
+pub Build: Statement = {
+	"build" <Ident> => Statement::Build(<>),
 };
 
 pub FunCall: Expr = {
-	<id:Ident> "("	<args:Args> ")" =>
-		Expr::FunCall { id, args: args.into_iter().map(|x| Box::new(x)).collect() }
-};
-
-pub Goto: Expr = {
-	"goto" <target:JumpTarget> => Expr::Goto(<>),
-};
-
-pub Branch: Expr = {
-	"if" <expr:Expr> "goto" <target:JumpTarget> => {
-		let condition = Box::new(expr);
-		Expr::Branch { condition, target }
+	<id:Ident> "("	<args:Args> ")" => {
+		let args = args.into_iter().map(|x| Box::new(x)).collect();
+		Expr::FunCall { id, args }
 	},
 };
 
-pub Call: Expr = {
-	"call" <JumpTarget> => Expr::Call(<>),
+pub FunCallStmt: Statement = {
+	<id:Ident> "("	<args:Args> ")" => Statement::FunCall { id, args },
 };
 
-pub Export: Expr = {
-	"export" <ExprVarnode> => Expr::Export(Box::new(<>)),
-	"export" <SizedPointer<ExprIdent>> => Expr::Export(Box::new(<>)),
+pub Goto: Statement = {
+	"goto" <target:JumpTarget> => Statement::Goto(<>),
 };
 
-pub Return: Expr = {
-	"return" "[" <JumpTarget> "]" => Expr::Return(<>),
+pub Branch: Statement = {
+	"if" <expr:Expr> "goto" <target:JumpTarget> =>  Statement::Branch { condition:expr, target },
+};
+
+pub Call: Statement = {
+	"call" <JumpTarget> => Statement::Call(<>),
+};
+
+pub Export: Statement = {
+	"export" <ExprVarnode> => Statement::Export(<>),
+	"export" <SizedPointer<ExprIdent>> => Statement::Export(<>),
+};
+
+pub Return: Statement = {
+	"return" "[" <JumpTarget> "]" => Statement::Return(<>),
 };
 
 pub JumpTarget: JumpTarget = {
-	<address:Number> "[" <space:Ident> "]" =>
-		JumpTarget::Fixed{ address, space: Some(space) },
-	<address:Number> =>
-		JumpTarget::Fixed{ address, space: None },
-	<Ident> =>
-		JumpTarget::Direct(<>),
-	"[" <Expr> "]" => {
-		let expr = Box::new(<>);
-		JumpTarget::Indirect(expr)
-	},
+	<address:Number> "[" <space:Ident> "]" => JumpTarget::Fixed{ address, space: Some(space) },
+	<address:Number> => JumpTarget::Fixed{ address, space: None },
+	<Ident> => JumpTarget::Direct(<>),
+	"[" <Expr> "]" =>  JumpTarget::Indirect(<>),
 	<Label> => JumpTarget::Label(<>),
 };
 
 LValue: Expr = {
 	<ExprBitRange>,
-	<id:ExprIdent> ":" <size:Number> => 
+	<id:ExprIdent> ":" <size:Number> =>
 		Expr::Sized { expr: Box::new(id), size },
 	<ExprIdent>,
 	SizedPointer<Expr>,
 };
 
 ExprBitRange: Expr = {
-	<id:Ident> "[" <start_bit:Number> "," <width:Number> "]" =>
-		Expr::BitRange { id, start_bit, width }
+	<id:Ident> "[" <start_bit:Number> "," <bit_width:Number> "]" =>
+		Expr::BitRange { id, start_bit, bit_width }
 };
 
 pub ExprVarnode: Expr = {
 	<ExprNumber>,
 	<ExprIdent>,
-	<id:ExprIdent> ":" <size:Number> => 
+	<id:ExprIdent> ":" <size:Number> =>
 		Expr::Sized { expr: Box::new(id), size },
-	<n:ExprNumber> ":" <size:Number> => 
+	<n:ExprNumber> ":" <size:Number> =>
 		Expr::Sized { expr: Box::new(n), size },
 };
 

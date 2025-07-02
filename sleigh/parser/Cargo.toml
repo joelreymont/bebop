@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+bebop-sleigh-util = { path = "../util" }
 internment = { version = "0.8", features = ["serde"]}
 logos = { version = "0.15"}
 serde = { version = "1", features = ["derive"] }
@@ -12,6 +13,7 @@ ariadne = "0.5.1"
 thiserror = "2.0.12"
 lalrpop = "0.22"
 lalrpop-util = "0.22"
+num-traits = "0.2.19"
 
 [build-dependencies]
 lalrpop = "0.22"

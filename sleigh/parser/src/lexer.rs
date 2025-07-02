@@ -1,8 +1,9 @@
-use super::error::{LexicalError, ParseError};
 use logos::Logos;
 use serde::Serialize;
 use std::num::ParseIntError;
 use std::ops::Range;
+
+use super::error::{LexicalError, ParseError};
 
 pub fn parse_number(base: u32, slice: &str) -> Result<usize, ParseIntError> {
     usize::from_str_radix(slice, base)
@@ -294,7 +295,7 @@ impl<'input> Lexer<'input> {
             NormalToken::Error => {
                 return Some(Err(ParseError::Lexical(LexicalError::Generic(
                     span.start, span.end,
-                ))))
+                ))));
             }
             _ => (),
         };

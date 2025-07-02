@@ -3,7 +3,7 @@ resolver = "3"
 members = [
   "bb",
   "sleigh/parser",
-  "sleigh/compiler",
+  "sleigh/compiler", "sleigh/util",
 ]
 
 [profile.dev.package]
