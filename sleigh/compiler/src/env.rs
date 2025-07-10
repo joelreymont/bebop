@@ -37,6 +37,14 @@ impl<K: Hash + Eq + Clone, V: PartialEq + Clone> Environment<K, V> {
     pub fn get(&self, key: &K) -> Option<&V> {
         self.env.get(key)
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.env.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.env.len()
+    }
 }
 
 impl<K: Hash + Eq + Clone, V: PartialEq + Clone> FromIterator<(K, V)> for Environment<K, V> {

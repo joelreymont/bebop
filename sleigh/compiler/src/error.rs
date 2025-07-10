@@ -1,3 +1,4 @@
+use bebop_sleigh_parser::error::*;
 use bebop_sleigh_util::meta::*;
 use thiserror::Error;
 
@@ -17,4 +18,7 @@ pub enum LiftError {
 
     #[error("Internal error (type mismatch)")]
     InternalTypeMismatch,
+
+    #[error("Parser error")]
+    ParserError(ParserError),
 }

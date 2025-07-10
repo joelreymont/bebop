@@ -4,15 +4,16 @@ use bebop_sleigh_util::meta::*;
 use serde::Serialize;
 use std::{cell::RefCell, option::Option::*, rc::Rc};
 
-type Ident = ast::Ident;
-type Endian = ast::Endian;
+pub type Ident = ast::Ident;
+pub type Endian = ast::Endian;
 
-type TypeEnv = Environment<Ident, Type>;
+pub type TypeEnv = Environment<Ident, Type>;
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize)]
 pub struct Tag {
     pub size: Option<usize>,
     pub hint: Option<Hint>,
+    #[serde(skip_serializing)]
     pub span: Span,
 }
 
@@ -161,7 +162,7 @@ impl Expr {
                 };
                 Ok(expr)
             }
-            Id(id) => scope.into_expr(&id),
+            Id(id) => scope.to_expr(&id),
             Int(n) => Ok(Expr::Int(n.into_value())),
             Unit(_) => Ok(Expr::Unit),
         }
@@ -328,7 +329,7 @@ impl TryFrom<&Type> for Ptr<Register> {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RegisterMap {
-    registers: Vec<Option<Ptr<Register>>>,
+    pub registers: Vec<Option<Ptr<Register>>>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize)]
@@ -368,8 +369,8 @@ impl TryFrom<&Type> for Ptr<BitField> {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RegisterIndex {
-    bit_field: Ptr<BitField>,
-    register_map_idx: usize,
+    pub bit_field: Ptr<BitField>,
+    pub register_map_idx: usize,
 }
 
 impl TryFrom<&Type> for Ptr<RegisterIndex> {
@@ -386,7 +387,7 @@ impl TryFrom<&Type> for Ptr<RegisterIndex> {
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize)]
 pub struct Variable {
-    id: Id,
+    pub id: Id,
 }
 
 impl TryFrom<&Type> for Ptr<Variable> {
@@ -403,7 +404,7 @@ impl TryFrom<&Type> for Ptr<Variable> {
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize)]
 pub struct Intrinsic {
-    id: Id,
+    pub id: Id,
 }
 
 impl TryFrom<&Type> for Ptr<Intrinsic> {
@@ -529,10 +530,8 @@ impl Statement {
             }
             FunCall { id, args } => {
                 let intrinsic = scope.lookup(&id)?.try_into()?;
-                let args: Result<Vec<Expr>, _> = args
-                    .into_iter()
-                    .map(|arg| Ok(Expr::lift(scope, arg)?))
-                    .collect();
+                let args: Result<Vec<Expr>, _> =
+                    args.into_iter().map(|arg| Expr::lift(scope, arg)).collect();
                 let stmt = Statement::FunCall {
                     intrinsic,
                     args: args?,
@@ -559,8 +558,8 @@ impl Statement {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Transfer {
-    kind: TransferKind,
-    target: JumpTarget,
+    pub kind: TransferKind,
+    pub target: JumpTarget,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -572,10 +571,10 @@ pub enum TransferKind {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Macro {
-    id: Id,
-    args: Vec<Id>,
-    body: Vec<Statement>,
-    scope: Scope,
+    pub id: Id,
+    pub args: Vec<Id>,
+    pub body: Vec<Statement>,
+    pub scope: Scope,
 }
 
 impl TryFrom<&Type> for Ptr<Macro> {
@@ -592,7 +591,7 @@ impl TryFrom<&Type> for Ptr<Macro> {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PCodeOp {
-    id: Id,
+    pub id: Id,
 }
 
 impl TryFrom<&Type> for Ptr<PCodeOp> {
@@ -609,9 +608,9 @@ impl TryFrom<&Type> for Ptr<PCodeOp> {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Scanner {
-    id: Id,
-    rules: Vec<PtrMut<Rule>>,
-    is_instruction: bool,
+    pub id: Id,
+    pub rules: Vec<PtrMut<Rule>>,
+    pub is_instruction: bool,
 }
 
 impl TryFrom<&Type> for PtrMut<Scanner> {
@@ -630,13 +629,13 @@ type Pattern = Vec<PtrMut<Expr>>;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Rule {
-    id: Id,
-    mnemonic: Vec<PtrMut<Output>>,
-    output: Vec<PtrMut<Output>>,
-    setup: Vec<Statement>,
-    actions: Vec<Statement>,
-    pattern: Pattern,
-    scope: Scope,
+    pub id: Id,
+    pub mnemonic: Vec<PtrMut<Output>>,
+    pub output: Vec<PtrMut<Output>>,
+    pub setup: Vec<Statement>,
+    pub actions: Vec<Statement>,
+    pub pattern: Pattern,
+    pub scope: Scope,
 }
 
 impl Rule {
@@ -644,7 +643,7 @@ impl Rule {
         let setup: Result<Vec<Statement>, LiftError> = ctr
             .context
             .into_iter()
-            .map(|stmt| Ok(Statement::lift(&mut scope, stmt)?))
+            .map(|stmt| Statement::lift(&mut scope, stmt))
             .collect();
         let pattern = Self::lift_pattern(&scope, ctr.pattern)?;
         let mnemonic: Vec<PtrMut<Output>> = ctr
@@ -654,7 +653,7 @@ impl Rule {
             .map(|piece| Output::lift(&scope, piece))
             .collect::<Result<Vec<Option<Output>>, LiftError>>()?
             .into_iter()
-            .filter_map(|x| x)
+            .flatten()
             .map(|x| Rc::new(RefCell::new(x)))
             .collect();
         let output: Vec<PtrMut<Output>> = ctr
@@ -664,13 +663,13 @@ impl Rule {
             .map(|piece| Output::lift(&scope, piece))
             .collect::<Result<Vec<Option<Output>>, LiftError>>()?
             .into_iter()
-            .filter_map(|x| x)
+            .flatten()
             .map(|x| Rc::new(RefCell::new(x)))
             .collect();
         let actions: Result<Vec<Statement>, LiftError> = ctr
             .body
             .into_iter()
-            .map(|stmt| Ok(Statement::lift(&mut scope, stmt)?))
+            .map(|stmt| Statement::lift(&mut scope, stmt))
             .collect();
         let rule = Self {
             id: Id::from(ctr.id),
@@ -736,8 +735,8 @@ impl Output {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Scope {
-    parent_env: Option<TypeEnv>,
-    env: TypeEnv,
+    pub parent_env: Option<TypeEnv>,
+    pub env: TypeEnv,
 }
 
 impl Default for Scope {
@@ -762,12 +761,12 @@ impl Scope {
         let id = id.value();
         self.parent_env
             .as_ref()
-            .and_then(|env| env.get(&id))
-            .or_else(|| self.env.get(&id))
-            .ok_or_else(|| LiftError::Unknown { span: *span })
+            .and_then(|env| env.get(id))
+            .or_else(|| self.env.get(id))
+            .ok_or(LiftError::Unknown { span: *span })
     }
 
-    fn into_expr(&self, id: &Loc<Ident>) -> Result<Expr, LiftError> {
+    fn to_expr(&self, id: &Loc<Ident>) -> Result<Expr, LiftError> {
         let ty = self.lookup(id)?;
         let span = *id.tag();
         use Expr::*;
@@ -783,6 +782,14 @@ impl Scope {
 
     pub fn insert(&mut self, id: Ident, value: Type) {
         self.env.insert(id, value)
+    }
+
+    pub fn len(&self) -> usize {
+        self.env.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.env.is_empty()
     }
 
     pub fn add_vars(
@@ -806,11 +813,12 @@ impl Scope {
             Id(id) => {
                 let id_ = id.value();
                 let id = self::Id::from(*id);
-                if let Some(_) = self
+                if self
                     .parent_env
                     .as_ref()
                     .and_then(|env| env.get(id_))
                     .or_else(|| self.env.get(id_))
+                    .is_some()
                 {
                     self.insert(*id_, Type::Variable(Rc::new(Variable { id })))
                 }
@@ -821,6 +829,7 @@ impl Scope {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
 pub struct Architecture {
     pub endian: Endian,
     pub alignment: usize,
@@ -885,12 +894,12 @@ impl Architecture {
     }
 
     fn lift_bit_fields(&mut self, token: ast::Token) -> Result<(), LiftError> {
-        let id = token.id.into_value();
         let bit_width = token.bit_width;
         for field in token.fields {
             let mut field = BitField::from(field);
             field.bit_width = bit_width.into_value();
-            self.scope.insert(id, Type::BitField(Rc::new(field)));
+            self.scope
+                .insert(field.id.ident, Type::BitField(Rc::new(field)));
         }
         Ok(())
     }
@@ -951,7 +960,7 @@ impl Architecture {
         let body: Result<Vec<Statement>, _> = m
             .body
             .into_iter()
-            .map(|stmt| Ok(Statement::lift(&mut scope, stmt)?))
+            .map(|stmt| Statement::lift(&mut scope, stmt))
             .collect();
         let m = Macro {
             id: Id::new(id, span),
@@ -970,7 +979,7 @@ impl Architecture {
             .scope
             .lookup(&ctr.id)
             .and_then(|x| x.try_into())
-            .and_then(|x: Rc<RefCell<Scanner>>| Ok(Some(x)))
+            .map(|x: Rc<RefCell<Scanner>>| Some(x))
             .or(Ok(None));
         let result = match (is_instruction, result?) {
             (true, Some(_)) => Err(LiftError::Duplicate { span }),

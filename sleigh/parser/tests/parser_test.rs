@@ -2,7 +2,7 @@ use bebop_sleigh_parser::{error::*, parse, *};
 use insta::*;
 
 #[test]
-fn test_def_endian() -> Result<(), ParseError> {
+fn parse_def_endian() -> Result<(), ParserError> {
     let s = r"
       define endian = big;
     ";
@@ -16,7 +16,7 @@ fn test_def_endian() -> Result<(), ParseError> {
 }
 
 #[test]
-fn test_def_alignment() -> Result<(), ParseError> {
+fn parse_def_alignment() -> Result<(), ParserError> {
     let s = r"
       define alignment = 0x200;
     ";
@@ -30,7 +30,7 @@ fn test_def_alignment() -> Result<(), ParseError> {
 }
 
 #[test]
-fn test_def_space1() -> Result<(), ParseError> {
+fn parse_def_space1() -> Result<(), ParserError> {
     let s = r"
       define space ram type=ram_space size=4 wordsize=1 default;
     ";
@@ -50,7 +50,7 @@ fn test_def_space1() -> Result<(), ParseError> {
 }
 
 #[test]
-fn test_def_space2() -> Result<(), ParseError> {
+fn parse_def_space2() -> Result<(), ParserError> {
     let s = r"
       define space register type=register_space size=4;
     ";
@@ -70,7 +70,7 @@ fn test_def_space2() -> Result<(), ParseError> {
 }
 
 #[test]
-fn test_def_register() -> Result<(), ParseError> {
+fn parse_def_register() -> Result<(), ParserError> {
     let s = r"
       define register offset=0x100 size=4
       [r0 r1 r2 r3];
@@ -94,7 +94,7 @@ fn test_def_register() -> Result<(), ParseError> {
 }
 
 #[test]
-fn test_def_token() -> Result<(), ParseError> {
+fn parse_def_token() -> Result<(), ParserError> {
     let s = r"
       define token instr32(32)
           OpSz        = (31, 31)
@@ -138,7 +138,7 @@ fn test_def_token() -> Result<(), ParseError> {
 }
 
 #[test]
-fn test_def_varnode_attach() -> Result<(), ParseError> {
+fn parse_def_varnode_attach() -> Result<(), ParserError> {
     let s = r"
       attach variables [Rt Rs] [
           r0 _ r1
@@ -164,7 +164,7 @@ fn test_def_varnode_attach() -> Result<(), ParseError> {
 }
 
 #[test]
-fn test_ctr_start1() -> Result<(), ParseError> {
+fn parse_ctr_start1() -> Result<(), ParserError> {
     let s = r"foo: Rt is";
     let ast = parse(CtrStartParserEx::new(), s)?;
     assert_ron_snapshot!(ast, @r#"
@@ -180,7 +180,7 @@ fn test_ctr_start1() -> Result<(), ParseError> {
 }
 
 #[test]
-fn test_ctr_start2() -> Result<(), ParseError> {
+fn parse_ctr_start2() -> Result<(), ParserError> {
     let s = r":foo^bar Rt is";
     let ast = parse(CtrStartParserEx::new(), s)?;
     assert_ron_snapshot!(ast, @r#"
@@ -199,7 +199,7 @@ fn test_ctr_start2() -> Result<(), ParseError> {
 }
 
 #[test]
-fn test_ctr_no_mnemonic() -> Result<(), ParseError> {
+fn parse_ctr_no_mnemonic() -> Result<(), ParserError> {
     let s = r"foo: Rt is unimpl";
     let ast = parse(DefsParserEx::new(), s)?;
     assert_ron_snapshot!(ast, @r#"
@@ -224,7 +224,7 @@ fn test_ctr_no_mnemonic() -> Result<(), ParseError> {
 }
 
 #[test]
-fn test_constructor1() -> Result<(), ParseError> {
+fn parse_constructor1() -> Result<(), ParserError> {
     let s = r"
         :bse is OpSz=0 & Opc=0b100001 & Rt & Ra & Rb & Alu2Mod=0b0000 & Sub6=0b001100 unimpl
     ";
@@ -288,7 +288,7 @@ fn test_constructor1() -> Result<(), ParseError> {
 }
 
 #[test]
-fn test_constructor2() -> Result<(), ParseError> {
+fn parse_constructor2() -> Result<(), ParserError> {
     let s = r"
         :fmtsr FRt, FSa is FOpSz=0 & COP=0b110101 & FRt & FSa & MxCP=0b1001 { FSa = FRt; }
     ";
@@ -351,7 +351,7 @@ fn test_constructor2() -> Result<(), ParseError> {
 }
 
 #[test]
-fn test_constructor3() -> Result<(), ParseError> {
+fn parse_constructor3() -> Result<(), ParserError> {
     let s = r"
         :ADC OP1     is (cc=1 & aaa=3) ... & OP1 unimpl
     ";

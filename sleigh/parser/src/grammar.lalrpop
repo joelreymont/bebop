@@ -1,7 +1,7 @@
 use bebop_sleigh_util::meta::*;
 use super::{
 	ast::*,
-	error::ParseError,
+	error::ParserError,
 	lexer::{Token as T, NormalToken as NT, DisplayToken as DT},
 };
 
@@ -483,7 +483,7 @@ SizedPointer<T>: Expr = {
 
 extern {
 	type Location = usize;
-	type Error = ParseError;
+	type Error = ParserError;
 
 	enum T<'input> {
     "alignment" => T::Normal(NT::Alignment),

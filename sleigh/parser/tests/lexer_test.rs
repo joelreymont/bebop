@@ -2,7 +2,7 @@ use bebop_sleigh_parser::{error::*, lexer::*};
 use insta::*;
 
 #[test]
-fn test_normal() -> Result<(), ParseError> {
+fn lex_normal() -> Result<(), ParserError> {
     let s = r"
         123 0b0111 0B100 0x123 0XABC foo
         if IF
@@ -153,7 +153,7 @@ fn test_normal() -> Result<(), ParseError> {
 }
 
 #[test]
-fn test_display() -> Result<(), ParseError> {
+fn lex_display() -> Result<(), ParserError> {
     let s = r#"foo^[Baz], bar bar1"#;
     let mut lexer = Lexer::new(s);
     lexer.switch_to_display();

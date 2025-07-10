@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::num::ParseIntError;
 use std::ops::Range;
 
-use super::error::{LexicalError, ParseError};
+use super::error::{LexerError, ParserError};
 
 pub fn parse_number(base: u32, slice: &str) -> Result<usize, ParseIntError> {
     usize::from_str_radix(slice, base)
@@ -289,11 +289,11 @@ impl<'input> Lexer<'input> {
         &mut self,
         span: Range<usize>,
         token: NormalToken<'input>,
-    ) -> Option<Result<SpannedToken<'input>, ParseError>> {
+    ) -> Option<Result<SpannedToken<'input>, ParserError>> {
         match token {
             NormalToken::Comment | NormalToken::NewLine => return self.next(),
             NormalToken::Error => {
-                return Some(Err(ParseError::Lexical(LexicalError::Generic(
+                return Some(Err(ParserError::Lexer(LexerError::Generic(
                     span.start, span.end,
                 ))));
             }
@@ -307,9 +307,9 @@ impl<'input> Lexer<'input> {
         &mut self,
         span: Range<usize>,
         token: DisplayToken<'input>,
-    ) -> Option<Result<SpannedToken<'input>, ParseError>> {
+    ) -> Option<Result<SpannedToken<'input>, ParserError>> {
         if let DisplayToken::Error = token {
-            return Some(Err(ParseError::Lexical(LexicalError::Generic(
+            return Some(Err(ParserError::Lexer(LexerError::Generic(
                 span.start, span.end,
             ))));
         }
@@ -338,7 +338,7 @@ impl<'input> Lexer<'input> {
 }
 
 impl<'input> Iterator for Lexer<'input> {
-    type Item = Result<SpannedToken<'input>, ParseError>;
+    type Item = Result<SpannedToken<'input>, ParserError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.lexer.as_mut().unwrap() {

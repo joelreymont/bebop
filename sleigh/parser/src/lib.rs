@@ -26,13 +26,10 @@ pub trait Parser {
         &self,
         file_id: FileId,
         lexer: lexer::Lexer<'input>,
-    ) -> Result<Self::U, error::LalrParseError<'input>>;
+    ) -> Result<Self::U, error::ParserError>;
 }
 
-pub fn parse<'input, T>(
-    parser: impl Parser<U = T>,
-    s: &'input str,
-) -> Result<T, error::LalrParseError<'input>> {
+pub fn parse<T>(parser: impl Parser<U = T>, s: &str) -> Result<T, error::ParserError> {
     let lexer = lexer::Lexer::new(s);
     parser.parse(FileId::empty(), lexer)
 }
@@ -50,12 +47,8 @@ impl Parser for DefsParserEx {
         }
     }
 
-    fn parse<'input>(
-        &self,
-        file_id: FileId,
-        lexer: lexer::Lexer<'input>,
-    ) -> Result<Self::U, error::LalrParseError<'input>> {
-        self.parser.parse(file_id, lexer)
+    fn parse(&self, file_id: FileId, lexer: lexer::Lexer) -> Result<Self::U, error::ParserError> {
+        Ok(self.parser.parse(file_id, lexer)?)
     }
 }
 
@@ -73,11 +66,7 @@ impl Parser for CtrStartParserEx {
         }
     }
 
-    fn parse<'input>(
-        &self,
-        file_id: FileId,
-        lexer: lexer::Lexer<'input>,
-    ) -> Result<Self::U, error::LalrParseError<'input>> {
-        self.parser.parse(file_id, lexer)
+    fn parse(&self, file_id: FileId, lexer: lexer::Lexer) -> Result<Self::U, error::ParserError> {
+        Ok(self.parser.parse(file_id, lexer)?)
     }
 }

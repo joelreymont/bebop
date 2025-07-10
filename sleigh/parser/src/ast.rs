@@ -52,7 +52,7 @@ pub enum Definition {
     Macro(Macro),
 }
 
-#[derive(Copy, Clone, PartialEq, Serialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
 pub enum Endian {
     Big,
     Little,

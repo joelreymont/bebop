@@ -4,14 +4,14 @@ use std::ops::Range;
 use thiserror::Error;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum LexicalError {
+pub enum LexerError {
     Generic(usize, usize),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Error)]
-pub enum ParseError {
-    #[error("Lexing error")]
-    Lexical(LexicalError),
+pub enum ParserError {
+    #[error("Lexer error")]
+    Lexer(LexerError),
 
     #[error("Invalid token")]
     InvalidToken { span: Range<usize> },
@@ -30,9 +30,9 @@ pub enum ParseError {
     ExtraToken { span: Range<usize> },
 }
 
-pub type LalrParseError<'input> = LalrpopError<usize, Token<'input>, ParseError>;
+pub type LalrParseError<'input> = LalrpopError<usize, Token<'input>, ParserError>;
 
-impl From<LalrParseError<'_>> for ParseError {
+impl From<LalrParseError<'_>> for ParserError {
     fn from(value: LalrParseError<'_>) -> Self {
         use LalrpopError::*;
 
