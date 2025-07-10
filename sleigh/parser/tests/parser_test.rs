@@ -38,7 +38,7 @@ fn parse_def_space1() -> Result<(), ParserError> {
     assert_ron_snapshot!(ast, @r#"
     [
       Space(Space(
-        id: Ident("ram"),
+        id: "ram",
         kind: Ram,
         size: 4,
         word_size: 1,
@@ -58,7 +58,7 @@ fn parse_def_space2() -> Result<(), ParserError> {
     assert_ron_snapshot!(ast, @r#"
     [
       Space(Space(
-        id: Ident("register"),
+        id: "register",
         kind: Register,
         size: 4,
         word_size: 1,
@@ -82,10 +82,10 @@ fn parse_def_register() -> Result<(), ParserError> {
         offset: 256,
         byte_size: 4,
         ids: [
-          Ident("r0"),
-          Ident("r1"),
-          Ident("r2"),
-          Ident("r3"),
+          "r0",
+          "r1",
+          "r2",
+          "r3",
         ],
       )),
     ]
@@ -106,25 +106,25 @@ fn parse_def_token() -> Result<(), ParserError> {
     assert_ron_snapshot!(ast, @r#"
     [
       Token(Token(
-        id: Ident("instr32"),
+        id: "instr32",
         bit_width: 32,
         fields: [
           Field(
-            id: Ident("OpSz"),
+            id: "OpSz",
             start_bit: 31,
             end_bit: 31,
             is_signed: false,
             is_hex: false,
           ),
           Field(
-            id: Ident("Opc"),
+            id: "Opc",
             start_bit: 25,
             end_bit: 30,
             is_signed: true,
             is_hex: false,
           ),
           Field(
-            id: Ident("Rt"),
+            id: "Rt",
             start_bit: 20,
             end_bit: 24,
             is_signed: false,
@@ -149,13 +149,13 @@ fn parse_def_varnode_attach() -> Result<(), ParserError> {
     [
       VarnodeAttach(VarnodeAttach(
         fields: [
-          Ident("Rt"),
-          Ident("Rs"),
+          "Rt",
+          "Rs",
         ],
         registers: [
-          Ident("r0"),
-          Ident("_"),
-          Ident("r1"),
+          "r0",
+          "_",
+          "r1",
         ],
       )),
     ]
@@ -168,10 +168,10 @@ fn parse_ctr_start1() -> Result<(), ParserError> {
     let s = r"foo: Rt is";
     let ast = parse(CtrStartParserEx::new(), s)?;
     assert_ron_snapshot!(ast, @r#"
-    (Ident("foo"), Display(
+    ("foo", Display(
       mnemonic: [],
       output: [
-        Id(Ident("Rt")),
+        Id("Rt"),
         Space,
       ],
     ), false)
@@ -184,13 +184,13 @@ fn parse_ctr_start2() -> Result<(), ParserError> {
     let s = r":foo^bar Rt is";
     let ast = parse(CtrStartParserEx::new(), s)?;
     assert_ron_snapshot!(ast, @r#"
-    (Ident("foo"), Display(
+    ("foo", Display(
       mnemonic: [
         Caret,
-        Id(Ident("bar")),
+        Id("bar"),
       ],
       output: [
-        Id(Ident("Rt")),
+        Id("Rt"),
         Space,
       ],
     ), true)
@@ -205,11 +205,11 @@ fn parse_ctr_no_mnemonic() -> Result<(), ParserError> {
     assert_ron_snapshot!(ast, @r#"
     [
       Constructor(Constructor(
-        id: Ident("foo"),
+        id: "foo",
         display: Display(
           mnemonic: [],
           output: [
-            Id(Ident("Rt")),
+            Id("Rt"),
             Space,
           ],
         ),
@@ -232,7 +232,7 @@ fn parse_constructor1() -> Result<(), ParserError> {
     assert_ron_snapshot!(ast, @r#"
     [
       Constructor(Constructor(
-        id: Ident("bse"),
+        id: "bse",
         display: Display(
           mnemonic: [],
           output: [],
@@ -251,30 +251,30 @@ fn parse_constructor1() -> Result<(), ParserError> {
                     op: AND,
                     lhs: Binary(
                       op: EQ,
-                      lhs: Id(Ident("OpSz")),
+                      lhs: Id("OpSz"),
                       rhs: Int(0),
                     ),
                     rhs: Binary(
                       op: EQ,
-                      lhs: Id(Ident("Opc")),
+                      lhs: Id("Opc"),
                       rhs: Int(33),
                     ),
                   ),
-                  rhs: Id(Ident("Rt")),
+                  rhs: Id("Rt"),
                 ),
-                rhs: Id(Ident("Ra")),
+                rhs: Id("Ra"),
               ),
-              rhs: Id(Ident("Rb")),
+              rhs: Id("Rb"),
             ),
             rhs: Binary(
               op: EQ,
-              lhs: Id(Ident("Alu2Mod")),
+              lhs: Id("Alu2Mod"),
               rhs: Int(0),
             ),
           ),
           rhs: Binary(
             op: EQ,
-            lhs: Id(Ident("Sub6")),
+            lhs: Id("Sub6"),
             rhs: Int(12),
           ),
         )),
@@ -296,14 +296,14 @@ fn parse_constructor2() -> Result<(), ParserError> {
     assert_ron_snapshot!(ast, @r#"
     [
       Constructor(Constructor(
-        id: Ident("fmtsr"),
+        id: "fmtsr",
         display: Display(
           mnemonic: [],
           output: [
-            Id(Ident("FRt")),
-            Text(Ident(",")),
+            Id("FRt"),
+            Text(","),
             Space,
-            Id(Ident("FSa")),
+            Id("FSa"),
             Space,
           ],
         ),
@@ -317,30 +317,30 @@ fn parse_constructor2() -> Result<(), ParserError> {
                 op: AND,
                 lhs: Binary(
                   op: EQ,
-                  lhs: Id(Ident("FOpSz")),
+                  lhs: Id("FOpSz"),
                   rhs: Int(0),
                 ),
                 rhs: Binary(
                   op: EQ,
-                  lhs: Id(Ident("COP")),
+                  lhs: Id("COP"),
                   rhs: Int(53),
                 ),
               ),
-              rhs: Id(Ident("FRt")),
+              rhs: Id("FRt"),
             ),
-            rhs: Id(Ident("FSa")),
+            rhs: Id("FSa"),
           ),
           rhs: Binary(
             op: EQ,
-            lhs: Id(Ident("MxCP")),
+            lhs: Id("MxCP"),
             rhs: Int(9),
           ),
         )),
         context: [],
         body: [
           Bind(
-            lhs: Id(Ident("FSa")),
-            rhs: Id(Ident("FRt")),
+            lhs: Id("FSa"),
+            rhs: Id("FRt"),
           ),
         ],
         is_instruction: true,
@@ -359,11 +359,11 @@ fn parse_constructor3() -> Result<(), ParserError> {
     assert_ron_snapshot!(ast, @r#"
     [
       Constructor(Constructor(
-        id: Ident("ADC"),
+        id: "ADC",
         display: Display(
           mnemonic: [],
           output: [
-            Id(Ident("OP1")),
+            Id("OP1"),
             Space,
           ],
         ),
@@ -375,17 +375,17 @@ fn parse_constructor3() -> Result<(), ParserError> {
               op: AND,
               lhs: Binary(
                 op: EQ,
-                lhs: Id(Ident("cc")),
+                lhs: Id("cc"),
                 rhs: Int(1),
               ),
               rhs: Binary(
                 op: EQ,
-                lhs: Id(Ident("aaa")),
+                lhs: Id("aaa"),
                 rhs: Int(3),
               ),
             )),
           ),
-          rhs: Id(Ident("OP1")),
+          rhs: Id("OP1"),
         )),
         context: [],
         body: [],

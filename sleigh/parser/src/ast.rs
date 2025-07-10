@@ -1,10 +1,10 @@
 use internment::Intern;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use std::{fmt, ops::Deref};
 
 use bebop_sleigh_util::meta::*;
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Ident(Intern<String>);
 
 impl fmt::Display for Ident {
@@ -36,6 +36,16 @@ impl Deref for Ident {
 impl AsRef<String> for Ident {
     fn as_ref(&self) -> &'static String {
         self.0.as_ref()
+    }
+}
+
+impl Serialize for Ident {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let s = self.0;
+        s.serialize(serializer)
     }
 }
 

@@ -1,14 +1,22 @@
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::iter::FromIterator;
 
-#[derive(Debug, PartialEq, Serialize)]
-pub struct Environment<K: Hash + Eq + Clone, V: PartialEq + Clone> {
+#[derive(Debug, PartialEq)]
+pub struct Environment<K, V>
+where
+    K: Hash + Eq + Clone + Ord + Serialize,
+    V: PartialEq + Clone + Serialize,
+{
     env: HashMap<K, V>,
 }
 
-impl<K: Hash + Eq + Clone, V: PartialEq + Clone> Clone for Environment<K, V> {
+impl<K, V> Clone for Environment<K, V>
+where
+    K: Hash + Eq + Clone + Ord + Serialize,
+    V: PartialEq + Clone + Serialize,
+{
     fn clone(&self) -> Self {
         Self {
             env: self.env.clone(),
@@ -16,7 +24,11 @@ impl<K: Hash + Eq + Clone, V: PartialEq + Clone> Clone for Environment<K, V> {
     }
 }
 
-impl<K: Hash + Eq + Clone, V: PartialEq + Clone> Default for Environment<K, V> {
+impl<K, V> Default for Environment<K, V>
+where
+    K: Hash + Eq + Clone + Ord + Serialize,
+    V: PartialEq + Clone + Serialize,
+{
     fn default() -> Self {
         Self {
             env: HashMap::new(),
@@ -24,7 +36,26 @@ impl<K: Hash + Eq + Clone, V: PartialEq + Clone> Default for Environment<K, V> {
     }
 }
 
-impl<K: Hash + Eq + Clone, V: PartialEq + Clone> Environment<K, V> {
+impl<K, V> Serialize for Environment<K, V>
+where
+    K: Hash + Eq + Clone + Ord + Serialize,
+    V: PartialEq + Clone + Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut results: Vec<(&K, &V)> = self.env.iter().collect();
+        results.sort_by(|x, y| x.0.cmp(y.0));
+        results.serialize(serializer)
+    }
+}
+
+impl<K, V> Environment<K, V>
+where
+    K: Hash + Eq + Clone + Ord + Serialize,
+    V: PartialEq + Clone + Serialize,
+{
     pub fn new() -> Self {
         Self::default()
     }
@@ -47,7 +78,11 @@ impl<K: Hash + Eq + Clone, V: PartialEq + Clone> Environment<K, V> {
     }
 }
 
-impl<K: Hash + Eq + Clone, V: PartialEq + Clone> FromIterator<(K, V)> for Environment<K, V> {
+impl<K, V> FromIterator<(K, V)> for Environment<K, V>
+where
+    K: Hash + Eq + Clone + Ord + Serialize,
+    V: PartialEq + Clone + Serialize,
+{
     fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
         Self {
             env: HashMap::from_iter(iter),

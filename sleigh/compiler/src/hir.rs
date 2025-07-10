@@ -1,7 +1,7 @@
 use crate::{env::Environment, error::LiftError};
 use bebop_sleigh_parser::ast;
 use bebop_sleigh_util::meta::*;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use std::{cell::RefCell, option::Option::*, rc::Rc};
 
 pub type Ident = ast::Ident;
@@ -266,7 +266,7 @@ impl TryFrom<Loc<ast::UnaryOp>> for UnaryOp {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Id {
     pub ident: Ident,
     pub tag: Tag,
@@ -285,6 +285,15 @@ impl From<Loc<Ident>> for Id {
     fn from(value: Loc<Ident>) -> Self {
         let (ident, span) = value.into();
         Self::new(ident, span)
+    }
+}
+
+impl Serialize for Id {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.ident.serialize(serializer)
     }
 }
 
@@ -735,6 +744,12 @@ impl Output {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Scope {
+    // Enabling serialization of `parent_env` creates a circular reference
+    // and overflows the stack. This is because `Rule.parent_env` points
+    // to the global scope which embdeds the rule. We don't need to dump
+    // the parent env of a rule anyway since it will be dumped as part
+    // of the Architecture. 
+    #[serde(skip_serializing)]
     pub parent_env: Option<TypeEnv>,
     pub env: TypeEnv,
 }
@@ -802,10 +817,9 @@ impl Scope {
             Sized { expr, size } => {
                 let size = *size.value();
                 let span = *expr.span();
-                if let Some(expected) = expected_size {
-                    if size != expected {
+                if let Some(expected) = expected_size &&
+                    size != expected {
                         return Err(LiftError::TypeMismatch { span });
-                    }
                 }
                 self.add_vars(expr, Some(size))?
             }
@@ -990,9 +1004,11 @@ impl Architecture {
                     rules: Vec::new(),
                 };
                 let scanner = Rc::new(RefCell::new(scanner));
-                let clone = scanner.clone();
+                let clone1 = scanner.clone();
+                let clone2 = scanner.clone();
                 self.scope.insert(id, Type::Scanner(scanner));
-                Ok(clone)
+                self.scanners.push(clone1);
+                Ok(clone2)
             }
             (false, Some(scanner)) => Ok(scanner.clone()),
         };
