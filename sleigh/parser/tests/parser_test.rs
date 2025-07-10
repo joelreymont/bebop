@@ -1,5 +1,4 @@
-use bebop_sleigh_parser::{error::*, grammar, lexer::*};
-use bebop_sleigh_util::meta::*;
+use bebop_sleigh_parser::{error::*, parse, *};
 use insta::*;
 
 #[test]
@@ -7,9 +6,7 @@ fn test_def_endian() -> Result<(), ParseError> {
     let s = r"
       define endian = big;
     ";
-    let lexer = Lexer::new(s);
-    let parser = grammar::DefsParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let ast = parse(DefsParserEx::new(), s)?;
     assert_ron_snapshot!(ast, @r"
     [
       Endian(Big),
@@ -23,9 +20,7 @@ fn test_def_alignment() -> Result<(), ParseError> {
     let s = r"
       define alignment = 0x200;
     ";
-    let lexer = Lexer::new(s);
-    let parser = grammar::DefsParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let ast = parse(DefsParserEx::new(), s)?;
     assert_ron_snapshot!(ast, @r"
     [
       Alignment(512),
@@ -39,9 +34,7 @@ fn test_def_space1() -> Result<(), ParseError> {
     let s = r"
       define space ram type=ram_space size=4 wordsize=1 default;
     ";
-    let lexer = Lexer::new(s);
-    let parser = grammar::DefsParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let ast = parse(DefsParserEx::new(), s)?;
     assert_ron_snapshot!(ast, @r#"
     [
       Space(Space(
@@ -61,9 +54,7 @@ fn test_def_space2() -> Result<(), ParseError> {
     let s = r"
       define space register type=register_space size=4;
     ";
-    let lexer = Lexer::new(s);
-    let parser = grammar::DefsParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let ast = parse(DefsParserEx::new(), s)?;
     assert_ron_snapshot!(ast, @r#"
     [
       Space(Space(
@@ -84,9 +75,7 @@ fn test_def_register() -> Result<(), ParseError> {
       define register offset=0x100 size=4
       [r0 r1 r2 r3];
     ";
-    let lexer = Lexer::new(s);
-    let parser = grammar::DefsParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let ast = parse(DefsParserEx::new(), s)?;
     assert_ron_snapshot!(ast, @r#"
     [
       Varnode(Varnode(
@@ -113,9 +102,7 @@ fn test_def_token() -> Result<(), ParseError> {
           Rt          = (20, 24) hex
       ;
     ";
-    let lexer = Lexer::new(s);
-    let parser = grammar::DefsParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let ast = parse(DefsParserEx::new(), s)?;
     assert_ron_snapshot!(ast, @r#"
     [
       Token(Token(
@@ -157,9 +144,7 @@ fn test_def_varnode_attach() -> Result<(), ParseError> {
           r0 _ r1
       ];
     ";
-    let lexer = Lexer::new(s);
-    let parser = grammar::DefsParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let ast = parse(DefsParserEx::new(), s)?;
     assert_ron_snapshot!(ast, @r#"
     [
       VarnodeAttach(VarnodeAttach(
@@ -181,9 +166,7 @@ fn test_def_varnode_attach() -> Result<(), ParseError> {
 #[test]
 fn test_ctr_start1() -> Result<(), ParseError> {
     let s = r"foo: Rt is";
-    let lexer = Lexer::new(s);
-    let parser = grammar::ConstructorStartParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let ast = parse(CtrStartParserEx::new(), s)?;
     assert_ron_snapshot!(ast, @r#"
     (Ident("foo"), Display(
       mnemonic: [],
@@ -199,9 +182,7 @@ fn test_ctr_start1() -> Result<(), ParseError> {
 #[test]
 fn test_ctr_start2() -> Result<(), ParseError> {
     let s = r":foo^bar Rt is";
-    let lexer = Lexer::new(s);
-    let parser = grammar::ConstructorStartParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let ast = parse(CtrStartParserEx::new(), s)?;
     assert_ron_snapshot!(ast, @r#"
     (Ident("foo"), Display(
       mnemonic: [
@@ -220,9 +201,7 @@ fn test_ctr_start2() -> Result<(), ParseError> {
 #[test]
 fn test_ctr_no_mnemonic() -> Result<(), ParseError> {
     let s = r"foo: Rt is unimpl";
-    let lexer = Lexer::new(s);
-    let parser = grammar::DefsParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let ast = parse(DefsParserEx::new(), s)?;
     assert_ron_snapshot!(ast, @r#"
     [
       Constructor(Constructor(
@@ -249,9 +228,7 @@ fn test_constructor1() -> Result<(), ParseError> {
     let s = r"
         :bse is OpSz=0 & Opc=0b100001 & Rt & Ra & Rb & Alu2Mod=0b0000 & Sub6=0b001100 unimpl
     ";
-    let lexer = Lexer::new(s);
-    let parser = grammar::DefsParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let ast = parse(DefsParserEx::new(), s)?;
     assert_ron_snapshot!(ast, @r#"
     [
       Constructor(Constructor(
@@ -315,9 +292,7 @@ fn test_constructor2() -> Result<(), ParseError> {
     let s = r"
         :fmtsr FRt, FSa is FOpSz=0 & COP=0b110101 & FRt & FSa & MxCP=0b1001 { FSa = FRt; }
     ";
-    let lexer = Lexer::new(s);
-    let parser = grammar::DefsParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let ast = parse(DefsParserEx::new(), s)?;
     assert_ron_snapshot!(ast, @r#"
     [
       Constructor(Constructor(
@@ -380,9 +355,7 @@ fn test_constructor3() -> Result<(), ParseError> {
     let s = r"
         :ADC OP1     is (cc=1 & aaa=3) ... & OP1 unimpl
     ";
-    let lexer = Lexer::new(s);
-    let parser = grammar::DefsParser::new();
-    let ast = parser.parse(FileId::empty(), lexer)?;
+    let ast = parse(DefsParserEx::new(), s)?;
     assert_ron_snapshot!(ast, @r#"
     [
       Constructor(Constructor(

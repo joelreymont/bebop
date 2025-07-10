@@ -30,7 +30,7 @@ pub enum ParseError {
     ExtraToken { span: Range<usize> },
 }
 
-type LalrParseError<'input> = LalrpopError<usize, Token<'input>, ParseError>;
+pub type LalrParseError<'input> = LalrpopError<usize, Token<'input>, ParseError>;
 
 impl From<LalrParseError<'_>> for ParseError {
     fn from(value: LalrParseError<'_>) -> Self {
