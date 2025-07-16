@@ -1,11 +1,19 @@
 use crate::lexer::*;
+use bebop_util::meta::*;
 use lalrpop_util::ParseError as LalrpopError;
-use std::ops::Range;
 use thiserror::Error;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum LexerError {
-    Generic(usize, usize),
+    Generic(Span),
+}
+
+impl Spanned for LexerError {
+    fn span(&self) -> &Span {
+        match self {
+            Self::Generic(span) => span,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Error)]
@@ -14,42 +22,58 @@ pub enum ParserError {
     Lexer(LexerError),
 
     #[error("Invalid token")]
-    InvalidToken { span: Range<usize> },
+    InvalidToken(Span),
 
     #[error("Unrecognized end-of-file")]
-    UnrecognizedEOF { span: Range<usize> },
+    UnrecognizedEOF(Span),
 
     #[error("Unrecognized token")]
     UnrecognizedToken {
         token: String,
         expected: Vec<String>,
-        span: Range<usize>,
+        span: Span,
     },
 
     #[error("Extra token")]
-    ExtraToken { span: Range<usize> },
+    ExtraToken(Span),
 }
 
-pub type LalrParseError<'input> = LalrpopError<usize, Token<'input>, ParserError>;
+impl Spanned for ParserError {
+    fn span(&self) -> &Span {
+        match self {
+            Self::Lexer(e) => e.span(),
+            Self::InvalidToken(span) => span,
+            Self::UnrecognizedEOF(span) => span,
+            Self::UnrecognizedToken { span, .. } => span,
+            Self::ExtraToken(span) => span,
+        }
+    }
+}
+
+pub type LalrParseError<'input> =
+    LalrpopError<usize, Token<'input>, ParserError>;
 
 impl From<LalrParseError<'_>> for ParserError {
     fn from(value: LalrParseError<'_>) -> Self {
         use LalrpopError::*;
-
         match value {
-            InvalidToken { location } => Self::InvalidToken { span: 0..location },
-            UnrecognizedEof { location, .. } => Self::UnrecognizedEOF { span: 0..location },
+            InvalidToken { location } => {
+                Self::InvalidToken(0..location)
+            }
+            UnrecognizedEof { location, .. } => {
+                Self::UnrecognizedEOF(0..location)
+            }
             UnrecognizedToken {
                 token: (start, token, end),
                 expected,
             } => Self::UnrecognizedToken {
-                token: format!("{:?}", token),
+                token: format!("{token:?}"),
                 expected,
                 span: start..end,
             },
             ExtraToken {
                 token: (start, _, end),
-            } => Self::ExtraToken { span: start..end },
+            } => Self::ExtraToken(start..end),
             User { error } => error,
             // User { error } => match error {
             //     Lexical::Generic(_, _) => ParseError::Lexical(error),

@@ -1,4 +1,4 @@
-use bebop_sleigh_parser::{error::*, lexer::*};
+use bebop_parser::{error::*, lexer::*};
 use insta::*;
 
 #[test]

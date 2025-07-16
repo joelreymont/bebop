@@ -1,9 +1,10 @@
-use bebop_sleigh_compiler::{error::*, hir::*};
-use bebop_sleigh_parser::{parse, *};
+use bebop_compiler::{error::*, hir::*};
+use bebop_parser::{parse, *};
 use insta::*;
 
 fn parse_and_lift(s: &str) -> Result<Architecture, LiftError> {
-    let ast = parse(DefsParserEx::new(), s).map_err(LiftError::ParserError)?;
+    let ast = parse(DefsParserEx::new(), s)
+        .map_err(LiftError::ParserError)?;
     let mut arch = Architecture::new();
     arch.lift(ast)?;
     Ok(arch)

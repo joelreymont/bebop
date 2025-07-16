@@ -1,6 +1,6 @@
 use crate::{env::Environment, error::LiftError};
-use bebop_sleigh_parser::ast;
-use bebop_sleigh_util::meta::*;
+use bebop_parser::ast;
+use bebop_util::meta::*;
 use serde::{Serialize, Serializer};
 use std::{cell::RefCell, option::Option::*, rc::Rc};
 
@@ -9,7 +9,7 @@ pub type Endian = ast::Endian;
 
 pub type TypeEnv = Environment<Ident, Type>;
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Tag {
     pub size: Option<usize>,
     pub hint: Option<Hint>,
@@ -27,7 +27,7 @@ impl From<Span> for Tag {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Hint {
     Unsigned,
     Signed,
@@ -169,7 +169,7 @@ impl Expr {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum BinaryOp {
     OR,
     AND,
@@ -236,13 +236,13 @@ impl TryFrom<Loc<ast::BinaryOp>> for BinaryOp {
             SMOD => Self::MOD(Hint::Signed),
             FMUL => Self::MUL(Hint::Float),
             FDIV => Self::DIV(Hint::Float),
-            _ => return Err(LiftError::Invalid { span }),
+            _ => return Err(LiftError::Invalid(span)),
         };
         Ok(op)
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum UnaryOp {
     NOT,
     INV,
@@ -260,13 +260,13 @@ impl TryFrom<Loc<ast::UnaryOp>> for UnaryOp {
             INV => Self::INV,
             NEG => Self::NEG { is_float: false },
             FNEG => Self::NEG { is_float: true },
-            _ => return Err(LiftError::Invalid { span }),
+            _ => return Err(LiftError::Invalid(span)),
         };
         Ok(op)
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Id {
     pub ident: Ident,
     pub tag: Tag,
@@ -297,7 +297,7 @@ impl Serialize for Id {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MemoryRegion {
     pub id: Id,
     pub kind: ast::SpaceKind,
@@ -313,12 +313,12 @@ impl TryFrom<&Type> for Ptr<MemoryRegion> {
         if let Type::MemoryRegion(x) = ty {
             Ok(x.clone())
         } else {
-            Err(LiftError::InternalTypeMismatch)
+            Err(LiftError::InternalTypeMismatch(0..0))
         }
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Register {
     pub id: Id,
     pub size: usize,
@@ -331,7 +331,7 @@ impl TryFrom<&Type> for Ptr<Register> {
         if let Type::Register(x) = ty {
             Ok(x.clone())
         } else {
-            Err(LiftError::InternalTypeMismatch)
+            Err(LiftError::InternalTypeMismatch(0..0))
         }
     }
 }
@@ -341,7 +341,7 @@ pub struct RegisterMap {
     pub registers: Vec<Option<Ptr<Register>>>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BitField {
     pub id: Id,
     pub bit_width: usize,
@@ -371,7 +371,7 @@ impl TryFrom<&Type> for Ptr<BitField> {
         if let Type::BitField(x) = ty {
             Ok(x.clone())
         } else {
-            Err(LiftError::InternalTypeMismatch)
+            Err(LiftError::InternalTypeMismatch(0..0))
         }
     }
 }
@@ -389,12 +389,12 @@ impl TryFrom<&Type> for Ptr<RegisterIndex> {
         if let Type::RegisterIndex(x) = ty {
             Ok(x.clone())
         } else {
-            Err(LiftError::InternalTypeMismatch)
+            Err(LiftError::InternalTypeMismatch(0..0))
         }
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Variable {
     pub id: Id,
 }
@@ -406,12 +406,12 @@ impl TryFrom<&Type> for Ptr<Variable> {
         if let Type::Variable(x) = ty {
             Ok(x.clone())
         } else {
-            Err(LiftError::InternalTypeMismatch)
+            Err(LiftError::InternalTypeMismatch(0..0))
         }
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Intrinsic {
     pub id: Id,
 }
@@ -423,7 +423,7 @@ impl TryFrom<&Type> for Ptr<Intrinsic> {
         if let Type::Intrinsic(x) = ty {
             Ok(x.clone())
         } else {
-            Err(LiftError::InternalTypeMismatch)
+            Err(LiftError::InternalTypeMismatch(0..0))
         }
     }
 }
@@ -593,7 +593,7 @@ impl TryFrom<&Type> for Ptr<Macro> {
         if let Type::Macro(x) = ty {
             Ok(x.clone())
         } else {
-            Err(LiftError::InternalTypeMismatch)
+            Err(LiftError::InternalTypeMismatch(0..0))
         }
     }
 }
@@ -610,7 +610,7 @@ impl TryFrom<&Type> for Ptr<PCodeOp> {
         if let Type::PCodeOp(x) = ty {
             Ok(x.clone())
         } else {
-            Err(LiftError::InternalTypeMismatch)
+            Err(LiftError::InternalTypeMismatch(0..0))
         }
     }
 }
@@ -629,7 +629,7 @@ impl TryFrom<&Type> for PtrMut<Scanner> {
         if let Type::Scanner(x) = ty {
             Ok(x.clone())
         } else {
-            Err(LiftError::InternalTypeMismatch)
+            Err(LiftError::InternalTypeMismatch(0..0))
         }
     }
 }
@@ -701,7 +701,7 @@ impl Rule {
                 acc.push(Rc::new(RefCell::new(lhs)));
                 acc.push(Rc::new(RefCell::new(rhs)));
             }
-            expr => return Err(LiftError::Invalid { span: *expr.span() }),
+            expr => return Err(LiftError::Invalid(expr.span())),
         }
         Ok(())
     }
@@ -735,7 +735,7 @@ impl Output {
                 Type::RegisterIndex(x) => Some(Output::RegisterIndex(x.clone())),
                 Type::BitField(x) => Some(Output::BitField(x.clone())),
                 Type::Scanner(x) => Some(Output::Scanner(x.clone())),
-                _ => return Err(LiftError::Invalid { span: id.span() }),
+                _ => return Err(LiftError::Invalid(id.span())),
             },
         };
         Ok(out)
@@ -772,18 +772,18 @@ impl Scope {
     }
 
     pub fn lookup(&self, id: &Loc<Ident>) -> Result<&Type, LiftError> {
-        let span = id.tag();
+        let span = id.span();
         let id = id.value();
         self.parent_env
             .as_ref()
             .and_then(|env| env.get(id))
             .or_else(|| self.env.get(id))
-            .ok_or(LiftError::Unknown { span: *span })
+            .ok_or(LiftError::Unknown(span))
     }
 
     fn to_expr(&self, id: &Loc<Ident>) -> Result<Expr, LiftError> {
         let ty = self.lookup(id)?;
-        let span = *id.tag();
+        let span = id.span();
         use Expr::*;
         match ty {
             Type::Register(x) => Ok(Register(x.clone())),
@@ -791,7 +791,7 @@ impl Scope {
             Type::BitField(x) => Ok(BitField(x.clone())),
             Type::Scanner(x) => Ok(Scanner(x.clone())),
             Type::Variable(x) => Ok(Variable(x.clone())),
-            _ => Err(LiftError::Invalid { span }),
+            _ => Err(LiftError::Invalid(span)),
         }
     }
 
@@ -816,17 +816,17 @@ impl Scope {
         match expr {
             Sized { expr, size } => {
                 let size = *size.value();
-                let span = *expr.span();
+                let span = expr.span();
                 if let Some(expected) = expected_size &&
                     size != expected {
-                        return Err(LiftError::TypeMismatch { span });
+                        return Err(LiftError::TypeMismatch(span));
                 }
                 self.add_vars(expr, Some(size))?
             }
             Pointer { expr, .. } => self.add_vars(expr, expected_size)?,
             Id(id) => {
                 let id_ = id.value();
-                let id = self::Id::from(*id);
+                let id = self::Id::from(id.clone());
                 if self
                     .parent_env
                     .as_ref()
@@ -893,6 +893,7 @@ impl Architecture {
 
     fn lift_memory_region(&mut self, space: ast::Space) -> Result<(), LiftError> {
         let id = Id::from(space.id);
+        let ident = id.ident;
         let region = MemoryRegion {
             id,
             kind: space.kind,
@@ -901,7 +902,7 @@ impl Architecture {
             is_default: space.is_default,
         };
         self.scope
-            .insert(id.ident, Type::MemoryRegion(Rc::new(region)));
+            .insert(ident, Type::MemoryRegion(Rc::new(region)));
         Ok(())
     }
 
@@ -909,7 +910,7 @@ impl Architecture {
         let bit_width = token.bit_width;
         for field in token.fields {
             let mut field = BitField::from(field);
-            field.bit_width = bit_width.into_value();
+            field.bit_width = bit_width.clone().into_value();
             self.scope
                 .insert(field.id.ident, Type::BitField(Rc::new(field)));
         }
@@ -920,8 +921,8 @@ impl Architecture {
         let varnode = varnode.into_value();
         for id in varnode.ids {
             let register = Register {
-                id: Id::from(id),
-                size: varnode.byte_size.into_value(),
+                id: Id::from(id.clone()),
+                size: varnode.byte_size.clone().into_value(),
             };
             self.scope
                 .insert(id.into_value(), Type::Register(Rc::new(register)));
@@ -960,7 +961,7 @@ impl Architecture {
 
     fn lift_pcode_op(&mut self, id: Loc<Ident>) -> Result<(), LiftError> {
         let id = Id::from(id);
-        let op = PCodeOp { id };
+        let op = PCodeOp { id: id.clone() };
         self.scope.insert(id.ident, Type::PCodeOp(Rc::new(op)));
         Ok(())
     }
@@ -985,7 +986,7 @@ impl Architecture {
     }
 
     fn lift_scanner(&mut self, ctr: ast::Constructor) -> Result<(), LiftError> {
-        let (id, span) = ctr.id.into();
+        let (id, span) = ctr.id.clone().into();
         let is_instruction = ctr.is_instruction;
         let result = self
             .scope
@@ -994,10 +995,10 @@ impl Architecture {
             .map(|x: Rc<RefCell<Scanner>>| Some(x))
             .or(Ok(None));
         let result = match (is_instruction, result?) {
-            (true, Some(_)) => Err(LiftError::Duplicate { span }),
+            (true, Some(_)) => Err(LiftError::Duplicate(span)),
             (_, None) => {
                 let scanner = Scanner {
-                    id: self::Id::from(ctr.id),
+                    id: self::Id::from(ctr.id.clone()),
                     is_instruction,
                     rules: Vec::new(),
                 };

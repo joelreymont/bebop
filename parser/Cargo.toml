@@ -1,10 +1,10 @@
 [package]
-name = "bebop-sleigh-parser"
+name = "bebop-parser"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bebop-sleigh-util = { path = "../util" }
+bebop-util = { path = "../util" }
 internment = { version = "0.8", features = ["serde"]}
 logos = { version = "0.15"}
 serde = { version = "1", features = ["derive"] }

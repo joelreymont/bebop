@@ -4,9 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-internment = "*"
-logos = "*"
-bebop-sleigh-parser = { path = "../sleigh/parser" }
+bebop-parser = { path = "../parser" }
+bebop-compiler= { path = "../compiler" }
+bebop-util = { path = "../util" }
+clap = { version = "4.5.41", features = ["derive"] }
+ariadne = "0.5.1"
 
 [[bin]]
 name = "bb"

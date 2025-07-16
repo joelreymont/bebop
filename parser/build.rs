@@ -4,7 +4,7 @@ fn main() {
     let checked_in_grammar_path =
         Path::new(&concat!(env!("CARGO_MANIFEST_DIR"), "/src/grammar.rs"));
 
-    println!("path = {:?}", checked_in_grammar_path);
+    println!("path = {checked_in_grammar_path:?}");
 
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("missing OUT_DIR variable"));
     let out_parser_dir = out_dir.join("parser");

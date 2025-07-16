@@ -1,14 +1,14 @@
-use bebop_sleigh_util::meta::*;
+use bebop_util::meta::*;
 use super::{
 	ast::*,
 	error::ParserError,
 	lexer::{Token as T, NormalToken as NT, DisplayToken as DT},
 };
 
-grammar<'input>(file_id: FileId);
+grammar<'input>();
 
 Located<T>: Loc<T> = <left: @L> <node: T> <right: @R> =>
-	Loc::new(node, Span::new(file_id, left..right));
+	Loc::new(node, left..right);
 
 Sep<T, S>: Vec<T> = {
     <mut v:(<T> S)*> <e:T?> => match e {
@@ -44,6 +44,7 @@ pub Def: Definition = {
 	Located<VarnodeAttachDef> => Definition::VarnodeAttach(<>),
 	Macro => Definition::Macro(<>),
 	Constructor => Definition::Constructor(<>),
+	PCodeOp => Definition::PCodeOp(<>),
 };
 
 pub EndianDef: Endian = "define" "endian" "=" <Endian> ";";
@@ -359,6 +360,10 @@ pub Macro: Macro = {
 		Macro { id, args, body: body }
 };
 
+pub PCodeOp: Loc<Ident> = {
+	"define" "pcodeop" <Ident> ";"
+};
+
 pub Statement: Statement = {
 	<Label> => Statement::Label(<>),
 	<Assignment> ";",
@@ -379,12 +384,12 @@ pub Assignment: Statement = {
 
 pub Declaration: Statement = {
 	"local" <left:@L> <lhs:ExprIdent> <right:@R> ":" <size:Number> => {
-	    let unit = Expr::Unit(Loc::new((), Span::new(file_id, left..right)));
+	    let unit = Expr::Unit(Loc::new((), left..right));
 		let rhs = Expr::Sized { expr: Box::new(unit), size };
 		Statement::Bind { lhs, rhs }
 	},
 	"local" <left:@L> <lhs:ExprIdent> <right:@R> => {
-	    let unit = Expr::Unit(Loc::new((), Span::new(file_id, left..right)));
+	    let unit = Expr::Unit(Loc::new((), left..right));
 		Statement::Bind { lhs, rhs: unit }
 	}
 

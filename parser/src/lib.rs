@@ -1,4 +1,4 @@
-use bebop_sleigh_util::meta::*;
+use bebop_util::meta::*;
 use lalrpop_util::lalrpop_mod;
 
 pub mod ast;
@@ -24,17 +24,20 @@ pub trait Parser {
 
     fn parse<'input>(
         &self,
-        file_id: FileId,
         lexer: lexer::Lexer<'input>,
     ) -> Result<Self::U, error::ParserError>;
 }
 
-pub fn parse<T>(parser: impl Parser<U = T>, s: &str) -> Result<T, error::ParserError> {
+pub fn parse<T>(
+    parser: impl Parser<U = T>,
+    s: &str,
+) -> Result<T, error::ParserError> {
     let lexer = lexer::Lexer::new(s);
-    parser.parse(FileId::empty(), lexer)
+    parser.parse(lexer)
 }
 
-pub type DefsParserEx = ParserEx<grammar::DefsParser, Vec<ast::Definition>>;
+pub type DefsParserEx =
+    ParserEx<grammar::DefsParser, Vec<ast::Definition>>;
 
 impl Parser for DefsParserEx {
     type T = grammar::DefsParser;
@@ -47,13 +50,18 @@ impl Parser for DefsParserEx {
         }
     }
 
-    fn parse(&self, file_id: FileId, lexer: lexer::Lexer) -> Result<Self::U, error::ParserError> {
-        Ok(self.parser.parse(file_id, lexer)?)
+    fn parse(
+        &self,
+        lexer: lexer::Lexer,
+    ) -> Result<Self::U, error::ParserError> {
+        Ok(self.parser.parse(lexer)?)
     }
 }
 
-pub type CtrStartParserEx =
-    ParserEx<grammar::ConstructorStartParser, (Loc<ast::Ident>, ast::Display, bool)>;
+pub type CtrStartParserEx = ParserEx<
+    grammar::ConstructorStartParser,
+    (Loc<ast::Ident>, ast::Display, bool),
+>;
 
 impl Parser for CtrStartParserEx {
     type T = grammar::ConstructorStartParser;
@@ -66,7 +74,10 @@ impl Parser for CtrStartParserEx {
         }
     }
 
-    fn parse(&self, file_id: FileId, lexer: lexer::Lexer) -> Result<Self::U, error::ParserError> {
-        Ok(self.parser.parse(file_id, lexer)?)
+    fn parse(
+        &self,
+        lexer: lexer::Lexer,
+    ) -> Result<Self::U, error::ParserError> {
+        Ok(self.parser.parse(lexer)?)
     }
 }

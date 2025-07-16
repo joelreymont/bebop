@@ -1,5 +1,5 @@
-use bebop_sleigh_compiler::{error::*, hir::*};
-use bebop_sleigh_util::meta::*;
+use bebop_compiler::{error::*, hir::*};
+use bebop_util::meta::*;
 use insta::*;
 use std::rc::Rc;
 

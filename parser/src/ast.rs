@@ -2,7 +2,7 @@ use internment::Intern;
 use serde::{Serialize, Serializer};
 use std::{fmt, ops::Deref};
 
-use bebop_sleigh_util::meta::*;
+use bebop_util::meta::*;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Ident(Intern<String>);
@@ -62,7 +62,7 @@ pub enum Definition {
     Macro(Macro),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Endian {
     Big,
     Little,
@@ -84,13 +84,13 @@ pub struct Token {
     pub fields: Vec<Field>,
 }
 
-#[derive(Copy, Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 pub enum FieldMod {
     IsSigned,
     IsHex,
 }
 
-#[derive(Copy, Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 pub struct Field {
     pub id: Loc<Ident>,
     pub start_bit: Loc<usize>,
@@ -123,14 +123,14 @@ impl Field {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 pub enum SpaceMod {
     Size(Loc<usize>),
     WordSize(Loc<usize>),
     IsDefault,
 }
 
-#[derive(Copy, Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 pub struct Space {
     pub id: Loc<Ident>,
     pub kind: SpaceKind,
@@ -140,12 +140,16 @@ pub struct Space {
 }
 
 impl Space {
-    pub fn new(id: Loc<Ident>, kind: SpaceKind, mods: Vec<SpaceMod>) -> Self {
+    pub fn new(
+        id: Loc<Ident>,
+        kind: SpaceKind,
+        mods: Vec<SpaceMod>,
+    ) -> Self {
         let this = Self {
             id,
             kind,
-            size: Loc::new(0, Span::empty()),
-            word_size: Loc::new(1, Span::empty()),
+            size: Loc::new(0, 0..0),
+            word_size: Loc::new(1, 0..0),
             is_default: true,
         };
         mods.into_iter().fold(this, |mut this, m| {
@@ -159,14 +163,14 @@ impl Space {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum SpaceKind {
     Rom,
     Ram,
     Register,
 }
 
-#[derive(Copy, Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 pub enum VarnodeMod {
     ByteSize(Loc<usize>),
     Offset(Loc<usize>),
@@ -183,8 +187,8 @@ impl Varnode {
     pub fn new(ids: Vec<Loc<Ident>>, mods: Vec<VarnodeMod>) -> Self {
         let this = Self {
             ids,
-            byte_size: Loc::new(0, Span::empty()),
-            offset: Loc::new(0, Span::empty()),
+            byte_size: Loc::new(0, 0..0),
+            offset: Loc::new(0, 0..0),
         };
         mods.into_iter().fold(this, |mut this, m| {
             match m {
@@ -218,7 +222,7 @@ pub struct Display {
     pub output: Vec<DisplayPiece>,
 }
 
-#[derive(Copy, Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 pub enum DisplayPiece {
     Id(Loc<Ident>),
     Text(Ident),
@@ -268,19 +272,19 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn span(&self) -> &Span {
+    pub fn span(&self) -> Span {
         use Expr::*;
         match self {
             Binary { lhs, .. } => lhs.span(),
             Unary { rhs, .. } => rhs.span(),
             Paren(expr) => expr.span(),
-            FunCall { id, .. } => id.tag(),
-            BitRange { id, .. } => id.tag(),
+            FunCall { id, .. } => id.span(),
+            BitRange { id, .. } => id.span(),
             Sized { expr, .. } => expr.span(),
             Pointer { expr, .. } => expr.span(),
-            Id(id) => id.tag(),
-            Int(n) => n.tag(),
-            Unit(x) => x.tag(),
+            Id(id) => id.span(),
+            Int(n) => n.span(),
+            Unit(x) => x.span(),
         }
     }
 }
@@ -309,7 +313,7 @@ pub enum JumpTarget {
     Label(Loc<Ident>),
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum UnaryOp {
     NOT,
     NEG,
@@ -331,7 +335,7 @@ impl fmt::Display for UnaryOp {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub enum BinaryOp {
     OR,
     AND,
