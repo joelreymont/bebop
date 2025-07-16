@@ -849,7 +849,6 @@ pub struct Architecture {
     pub alignment: usize,
     pub scope: Scope,
     pub default_region: Option<Ptr<MemoryRegion>>,
-    pub scanners: Vec<PtrMut<Scanner>>,
     pub register_maps: Vec<RegisterMap>,
 }
 
@@ -860,7 +859,6 @@ impl Architecture {
             alignment: 4,
             scope: Scope::default(),
             default_region: None,
-            scanners: Vec::new(),
             register_maps: Vec::new(),
         }
     }
@@ -1004,11 +1002,9 @@ impl Architecture {
                     rules: Vec::new(),
                 };
                 let scanner = Rc::new(RefCell::new(scanner));
-                let clone1 = scanner.clone();
-                let clone2 = scanner.clone();
+                let cloned = scanner.clone();
                 self.scope.insert(id, Type::Scanner(scanner));
-                self.scanners.push(clone1);
-                Ok(clone2)
+                Ok(cloned)
             }
             (false, Some(scanner)) => Ok(scanner.clone()),
         };

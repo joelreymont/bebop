@@ -52,7 +52,6 @@ fn lift_token() -> Result<(), LiftError> {
         ],
       ),
       default_region: None,
-      scanners: [],
       register_maps: [],
     )
     "#);
@@ -64,39 +63,85 @@ fn lift_ctr_simple() -> Result<(), LiftError> {
     let s = r"
         define token instr32(32)
             Rt          = (20, 24)
+            Ra          = (10, 16)
         ;
         foo: Rt is unimpl
+        foo: Ra is unimpl
     ";
     let arch = parse_and_lift(s)?;
-    assert_ron_snapshot!(arch.scanners, @r#"
-    [
-      Scanner(
-        id: "foo",
-        rules: [
-          Rule(
+    assert_ron_snapshot!(arch, @r#"
+    Architecture(
+      endian: Little,
+      alignment: 4,
+      scope: Scope(
+        env: [
+          ("Ra", BitField(BitField(
+            id: "Ra",
+            bit_width: 32,
+            start_bit: 10,
+            end_bit: 16,
+            is_signed: false,
+            is_hex: false,
+          ))),
+          ("Rt", BitField(BitField(
+            id: "Rt",
+            bit_width: 32,
+            start_bit: 20,
+            end_bit: 24,
+            is_signed: false,
+            is_hex: false,
+          ))),
+          ("foo", Scanner(Scanner(
             id: "foo",
-            mnemonic: [],
-            output: [
-              BitField(BitField(
-                id: "Rt",
-                bit_width: 32,
-                start_bit: 20,
-                end_bit: 24,
-                is_signed: false,
-                is_hex: false,
-              )),
+            rules: [
+              Rule(
+                id: "foo",
+                mnemonic: [],
+                output: [
+                  BitField(BitField(
+                    id: "Rt",
+                    bit_width: 32,
+                    start_bit: 20,
+                    end_bit: 24,
+                    is_signed: false,
+                    is_hex: false,
+                  )),
+                ],
+                setup: [],
+                actions: [],
+                pattern: [],
+                scope: Scope(
+                  env: [],
+                ),
+              ),
+              Rule(
+                id: "foo",
+                mnemonic: [],
+                output: [
+                  BitField(BitField(
+                    id: "Ra",
+                    bit_width: 32,
+                    start_bit: 10,
+                    end_bit: 16,
+                    is_signed: false,
+                    is_hex: false,
+                  )),
+                ],
+                setup: [],
+                actions: [],
+                pattern: [],
+                scope: Scope(
+                  env: [],
+                ),
+              ),
             ],
-            setup: [],
-            actions: [],
-            pattern: [],
-            scope: Scope(
-              env: [],
-            ),
-          ),
+            is_instruction: false,
+          ))),
         ],
-        is_instruction: false,
       ),
-    ]
+      default_region: None,
+      register_maps: [],
+    )
     "#);
     Ok(())
 }

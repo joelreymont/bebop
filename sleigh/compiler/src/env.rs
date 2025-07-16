@@ -1,5 +1,5 @@
+use ordermap::OrderMap;
 use serde::{Serialize, Serializer};
-use std::collections::HashMap;
 use std::hash::Hash;
 use std::iter::FromIterator;
 
@@ -9,7 +9,7 @@ where
     K: Hash + Eq + Clone + Ord + Serialize,
     V: PartialEq + Clone + Serialize,
 {
-    env: HashMap<K, V>,
+    env: OrderMap<K, V>,
 }
 
 impl<K, V> Clone for Environment<K, V>
@@ -31,7 +31,7 @@ where
 {
     fn default() -> Self {
         Self {
-            env: HashMap::new(),
+            env: OrderMap::new(),
         }
     }
 }
@@ -85,7 +85,7 @@ where
 {
     fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
         Self {
-            env: HashMap::from_iter(iter),
+            env: OrderMap::from_iter(iter),
         }
     }
 }
