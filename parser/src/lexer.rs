@@ -192,7 +192,7 @@ pub enum DisplayToken<'input> {
     Ident(&'input str),
     #[regex("[^ \ta-zA-Z_\\.\\^][^ \t\\^]*")]
     Text(&'input str),
-    #[token("is")]
+    #[regex("[iI][sS]", priority = 100)]
     Is,
     #[token("^")]
     Caret,
@@ -236,6 +236,7 @@ impl<'input> Iterator for ModalLexer<'input> {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum State {
     Normal,
+    ForcedNormal,
     NewLine,
     MaybeDisplay,
     Display,
@@ -310,6 +311,14 @@ impl<'input> Lexer<'input> {
     fn update_state(&mut self, token: Token<'input>) {
         use {DisplayToken as DT, NormalToken as NT, Token as T};
         match (self.state, token) {
+            (
+                State::Normal | State::NewLine | State::MaybeDisplay,
+                T::Normal(NT::LBracket) | T::Normal(NT::LBrace),
+            ) => self.state = State::ForcedNormal,
+            (
+                State::ForcedNormal,
+                T::Normal(NT::RBracket) | T::Normal(NT::RBrace),
+            ) => self.state = State::Normal,
             (State::Normal, T::Normal(NT::NewLine)) => {
                 self.state = State::NewLine
             }

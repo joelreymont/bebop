@@ -56,12 +56,12 @@ fn lex_normal() -> Result<(), ParserError> {
       (100, Normal(Alignment), 109),
       (118, Normal(Attach), 124),
       (125, Normal(Attach), 131),
-      (140, Normal(Big), 143),
-      (144, Normal(Big), 147),
-      (156, Normal(Default), 163),
-      (164, Normal(Default), 171),
-      (180, Normal(Little), 186),
-      (187, Normal(Little), 193),
+      (140, Normal(Ident("big")), 143),
+      (144, Normal(Ident("BIG")), 147),
+      (156, Normal(Ident("default")), 163),
+      (164, Normal(Ident("DEFAULT")), 171),
+      (180, Normal(Ident("little")), 186),
+      (187, Normal(Ident("LITTLE")), 193),
       (202, Normal(Build), 207),
       (208, Normal(Build), 213),
       (222, Normal(Call), 226),
@@ -154,7 +154,7 @@ fn lex_normal() -> Result<(), ParserError> {
 
 #[test]
 fn lex_display() -> Result<(), ParserError> {
-    let s = r#"foo^[Baz], bar bar1"#;
+    let s = r#"foo^[Baz], bar bar1 is not"#;
     let mut lexer = Lexer::new(s);
     lexer.switch_to_display();
     let tokens: Vec<_> = lexer.collect::<Result<_, _>>()?;
@@ -167,6 +167,9 @@ fn lex_display() -> Result<(), ParserError> {
       (11, Display(Ident("bar")), 14),
       (14, Display(Whitespace), 15),
       (15, Display(Ident("bar1")), 19),
+      (19, Display(Whitespace), 20),
+      (20, Display(Is), 22),
+      (23, Normal(Ident("not")), 26),
     ]
     "#);
     Ok(())
