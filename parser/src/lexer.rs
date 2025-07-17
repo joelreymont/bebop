@@ -282,7 +282,7 @@ impl<'input> Lexer<'input> {
     ) -> Option<Result<SpannedToken<'input>, ParserError>> {
         match token {
             NormalToken::Comment | NormalToken::NewLine => {
-                return self.next()
+                return self.next();
             }
             NormalToken::Error => {
                 return Some(Err(ParserError::Lexer(

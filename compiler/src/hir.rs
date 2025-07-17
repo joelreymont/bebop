@@ -89,7 +89,10 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn lift(scope: &Scope, expr: ast::Expr) -> Result<Self, LiftError> {
+    pub fn lift(
+        scope: &Scope,
+        expr: ast::Expr,
+    ) -> Result<Self, LiftError> {
         use ast::Expr::*;
         match expr {
             Binary { op, lhs, rhs } => {
@@ -437,7 +440,10 @@ pub enum JumpTarget {
 }
 
 impl JumpTarget {
-    pub fn lift(scope: &Scope, target: ast::JumpTarget) -> Result<Self, LiftError> {
+    pub fn lift(
+        scope: &Scope,
+        target: ast::JumpTarget,
+    ) -> Result<Self, LiftError> {
         use ast::JumpTarget::*;
         let target = match target {
             Fixed { address, space } => {
@@ -455,7 +461,9 @@ impl JumpTarget {
                 JumpTarget::Fixed(addr)
             }
             Direct(id) => JumpTarget::Direct(id), // TODO: Validate in this env!
-            Indirect(expr) => JumpTarget::Indirect(Expr::lift(scope, expr)?),
+            Indirect(expr) => {
+                JumpTarget::Indirect(Expr::lift(scope, expr)?)
+            }
             Label(id) => JumpTarget::Label(id), // TODO: Validate in this env!
         };
         Ok(target)
@@ -493,7 +501,10 @@ pub enum Statement {
 }
 
 impl Statement {
-    pub fn lift(scope: &mut Scope, stmt: ast::Statement) -> Result<Statement, LiftError> {
+    pub fn lift(
+        scope: &mut Scope,
+        stmt: ast::Statement,
+    ) -> Result<Statement, LiftError> {
         use ast::Statement::*;
         match stmt {
             Bind { lhs, rhs } => {
@@ -539,8 +550,10 @@ impl Statement {
             }
             FunCall { id, args } => {
                 let intrinsic = scope.lookup(&id)?.try_into()?;
-                let args: Result<Vec<Expr>, _> =
-                    args.into_iter().map(|arg| Expr::lift(scope, arg)).collect();
+                let args: Result<Vec<Expr>, _> = args
+                    .into_iter()
+                    .map(|arg| Expr::lift(scope, arg))
+                    .collect();
                 let stmt = Statement::FunCall {
                     intrinsic,
                     args: args?,
@@ -557,7 +570,8 @@ impl Statement {
                 Ok(stmt)
             }
             Build(id) => {
-                let scanner: PtrMut<Scanner> = scope.lookup(&id)?.try_into()?;
+                let scanner: PtrMut<Scanner> =
+                    scope.lookup(&id)?.try_into()?;
                 let stmt = Statement::Build(scanner.clone());
                 Ok(stmt)
             }
@@ -648,7 +662,10 @@ pub struct Rule {
 }
 
 impl Rule {
-    pub fn lift(mut scope: Scope, ctr: ast::Constructor) -> Result<Self, LiftError> {
+    pub fn lift(
+        mut scope: Scope,
+        ctr: ast::Constructor,
+    ) -> Result<Self, LiftError> {
         let setup: Result<Vec<Statement>, LiftError> = ctr
             .context
             .into_iter()
@@ -692,24 +709,36 @@ impl Rule {
         Ok(rule)
     }
 
-    fn lift_expr(scope: &Scope, acc: &mut Pattern, expr: ast::Expr) -> Result<(), LiftError> {
+    fn lift_pat_expr(
+        scope: &Scope,
+        acc: &mut Pattern,
+        expr: ast::Expr,
+    ) -> Result<(), LiftError> {
         use ast::Expr::*;
         match expr {
-            Binary { op, lhs, rhs } if op.value() == &ast::BinaryOp::JOIN => {
+            Binary { op, lhs, rhs }
+                if op.value() == &ast::BinaryOp::JOIN =>
+            {
                 let lhs = Expr::lift(scope, *lhs)?;
                 let rhs = Expr::lift(scope, *rhs)?;
                 acc.push(Rc::new(RefCell::new(lhs)));
                 acc.push(Rc::new(RefCell::new(rhs)));
             }
-            expr => return Err(LiftError::Invalid(expr.span())),
+            expr => {
+                let expr = Expr::lift(scope, expr)?;
+                acc.push(Rc::new(RefCell::new(expr)));
+            }
         }
         Ok(())
     }
 
-    fn lift_pattern(scope: &Scope, expr: Option<ast::Expr>) -> Result<Pattern, LiftError> {
+    fn lift_pattern(
+        scope: &Scope,
+        expr: Option<ast::Expr>,
+    ) -> Result<Pattern, LiftError> {
         let mut pattern = Vec::new();
         if let Some(expr) = expr {
-            Self::lift_expr(scope, &mut pattern, expr)?;
+            Self::lift_pat_expr(scope, &mut pattern, expr)?;
         }
         Ok(pattern)
     }
@@ -725,14 +754,19 @@ pub enum Output {
 }
 
 impl Output {
-    pub fn lift(scope: &Scope, piece: ast::DisplayPiece) -> Result<Option<Self>, LiftError> {
+    pub fn lift(
+        scope: &Scope,
+        piece: ast::DisplayPiece,
+    ) -> Result<Option<Self>, LiftError> {
         use ast::DisplayPiece::*;
         let out = match piece {
             Text(id) => Some(Output::Text(id)),
             Caret | Space => None,
             Id(id) => match scope.lookup(&id)? {
                 Type::Register(x) => Some(Output::Register(x.clone())),
-                Type::RegisterIndex(x) => Some(Output::RegisterIndex(x.clone())),
+                Type::RegisterIndex(x) => {
+                    Some(Output::RegisterIndex(x.clone()))
+                }
                 Type::BitField(x) => Some(Output::BitField(x.clone())),
                 Type::Scanner(x) => Some(Output::Scanner(x.clone())),
                 _ => return Err(LiftError::Invalid(id.span())),
@@ -748,7 +782,7 @@ pub struct Scope {
     // and overflows the stack. This is because `Rule.parent_env` points
     // to the global scope which embdeds the rule. We don't need to dump
     // the parent env of a rule anyway since it will be dumped as part
-    // of the Architecture. 
+    // of the Architecture.
     #[serde(skip_serializing)]
     pub parent_env: Option<TypeEnv>,
     pub env: TypeEnv,
@@ -817,9 +851,10 @@ impl Scope {
             Sized { expr, size } => {
                 let size = *size.value();
                 let span = expr.span();
-                if let Some(expected) = expected_size &&
-                    size != expected {
-                        return Err(LiftError::TypeMismatch(span));
+                if let Some(expected) = expected_size
+                    && size != expected
+                {
+                    return Err(LiftError::TypeMismatch(span));
                 }
                 self.add_vars(expr, Some(size))?
             }
@@ -832,9 +867,12 @@ impl Scope {
                     .as_ref()
                     .and_then(|env| env.get(id_))
                     .or_else(|| self.env.get(id_))
-                    .is_some()
+                    .is_none()
                 {
-                    self.insert(*id_, Type::Variable(Rc::new(Variable { id })))
+                    self.insert(
+                        *id_,
+                        Type::Variable(Rc::new(Variable { id })),
+                    )
                 }
             }
             _ => {}
@@ -854,16 +892,13 @@ pub struct Architecture {
 
 impl Architecture {
     pub fn new() -> Self {
-        Self {
-            endian: Endian::Little,
-            alignment: 4,
-            scope: Scope::default(),
-            default_region: None,
-            register_maps: Vec::new(),
-        }
+        Self::default()
     }
 
-    pub fn lift(&mut self, defs: Vec<ast::Definition>) -> Result<(), LiftError> {
+    pub fn lift(
+        &mut self,
+        defs: Vec<ast::Definition>,
+    ) -> Result<(), LiftError> {
         use ast::Definition as Def;
         for def in defs {
             match def {
@@ -881,17 +916,26 @@ impl Architecture {
         Ok(())
     }
 
-    fn lift_endian(&mut self, endian: Loc<ast::Endian>) -> Result<(), LiftError> {
+    fn lift_endian(
+        &mut self,
+        endian: Loc<ast::Endian>,
+    ) -> Result<(), LiftError> {
         self.endian = endian.into_value();
         Ok(())
     }
 
-    fn lift_alignment(&mut self, alignment: Loc<usize>) -> Result<(), LiftError> {
+    fn lift_alignment(
+        &mut self,
+        alignment: Loc<usize>,
+    ) -> Result<(), LiftError> {
         self.alignment = alignment.into_value();
         Ok(())
     }
 
-    fn lift_memory_region(&mut self, space: ast::Space) -> Result<(), LiftError> {
+    fn lift_memory_region(
+        &mut self,
+        space: ast::Space,
+    ) -> Result<(), LiftError> {
         let id = Id::from(space.id);
         let ident = id.ident;
         let region = MemoryRegion {
@@ -906,7 +950,10 @@ impl Architecture {
         Ok(())
     }
 
-    fn lift_bit_fields(&mut self, token: ast::Token) -> Result<(), LiftError> {
+    fn lift_bit_fields(
+        &mut self,
+        token: ast::Token,
+    ) -> Result<(), LiftError> {
         let bit_width = token.bit_width;
         for field in token.fields {
             let mut field = BitField::from(field);
@@ -917,20 +964,28 @@ impl Architecture {
         Ok(())
     }
 
-    fn lift_registers(&mut self, varnode: Loc<ast::Varnode>) -> Result<(), LiftError> {
+    fn lift_registers(
+        &mut self,
+        varnode: Loc<ast::Varnode>,
+    ) -> Result<(), LiftError> {
         let varnode = varnode.into_value();
         for id in varnode.ids {
             let register = Register {
                 id: Id::from(id.clone()),
                 size: varnode.byte_size.clone().into_value(),
             };
-            self.scope
-                .insert(id.into_value(), Type::Register(Rc::new(register)));
+            self.scope.insert(
+                id.into_value(),
+                Type::Register(Rc::new(register)),
+            );
         }
         Ok(())
     }
 
-    fn lift_register_map(&mut self, attach: Loc<ast::VarnodeAttach>) -> Result<(), LiftError> {
+    fn lift_register_map(
+        &mut self,
+        attach: Loc<ast::VarnodeAttach>,
+    ) -> Result<(), LiftError> {
         let underscore = Ident::new("_");
         let attach = attach.into_value();
         // Create register map
@@ -953,8 +1008,10 @@ impl Architecture {
                 register_map_idx,
                 bit_field,
             };
-            self.scope
-                .insert(id.into_value(), Type::RegisterIndex(Rc::new(index)));
+            self.scope.insert(
+                id.into_value(),
+                Type::RegisterIndex(Rc::new(index)),
+            );
         }
         Ok(())
     }
@@ -985,7 +1042,10 @@ impl Architecture {
         Ok(())
     }
 
-    fn lift_scanner(&mut self, ctr: ast::Constructor) -> Result<(), LiftError> {
+    fn lift_scanner(
+        &mut self,
+        ctr: ast::Constructor,
+    ) -> Result<(), LiftError> {
         let (id, span) = ctr.id.clone().into();
         let is_instruction = ctr.is_instruction;
         let result = self
@@ -1019,6 +1079,54 @@ impl Architecture {
 
 impl Default for Architecture {
     fn default() -> Self {
-        Self::new()
+        let mut arch = Self {
+            endian: Endian::Little,
+            alignment: 4,
+            scope: Scope::default(),
+            default_region: None,
+            register_maps: Vec::new(),
+        };
+        INTRINSICS.iter().for_each(|name| {
+            let ident = Ident::new(name);
+            let id = Id::new(ident, 0..0);
+            let intrinsic = Intrinsic { id };
+            arch.scope
+                .insert(ident, Type::Intrinsic(Rc::new(intrinsic)));
+        });
+        arch
     }
 }
+
+const INTRINSICS: [&str; 31] = [
+    "inst_start",
+    "inst_next",
+    "zext",
+    "sext",
+    "carry",
+    "scarry",
+    "sborrow",
+    "int2float",
+    "float2float",
+    "floor",
+    "mfsr",
+    "mtsr",
+    "msync",
+    "isync",
+    "dpref",
+    "dsb",
+    "isb",
+    "break",
+    "syscall",
+    "trap",
+    "cctl",
+    "setgie",
+    "setend",
+    "TLB_TargetRead",
+    "TLB_TargetWrite",
+    "TLB_RWrite",
+    "TLB_RWriteLock",
+    "TLB_Unlock",
+    "TLB_Probe",
+    "TLB_Invalidate",
+    "TLB_FlushAll",
+];

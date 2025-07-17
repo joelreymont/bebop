@@ -57,9 +57,7 @@ impl From<LalrParseError<'_>> for ParserError {
     fn from(value: LalrParseError<'_>) -> Self {
         use LalrpopError::*;
         match value {
-            InvalidToken { location } => {
-                Self::InvalidToken(0..location)
-            }
+            InvalidToken { location } => Self::InvalidToken(0..location),
             UnrecognizedEof { location, .. } => {
                 Self::UnrecognizedEOF(0..location)
             }

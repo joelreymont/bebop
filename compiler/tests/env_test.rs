@@ -1,4 +1,5 @@
 use bebop_compiler::{error::*, hir::*};
+use bebop_parser::ast::Expr;
 use bebop_util::meta::*;
 use insta::*;
 use std::rc::Rc;
@@ -75,5 +76,23 @@ fn scope() -> Result<(), LiftError> {
       env: [],
     )
     ");
+    Ok(())
+}
+
+#[test]
+fn scope_add_vars() -> Result<(), LiftError> {
+    let mut scope = Scope::default();
+    let id = Loc::new(Ident::new("foo"), 0..0);
+    let expr = Expr::Id(id);
+    scope.add_vars(&expr, None)?;
+    assert_ron_snapshot!(scope, @r#"
+    Scope(
+      env: [
+        ("foo", Variable(Variable(
+          id: "foo",
+        ))),
+      ],
+    )
+    "#);
     Ok(())
 }
