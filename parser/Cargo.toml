@@ -14,6 +14,7 @@ thiserror = "2.0.12"
 lalrpop = "0.22"
 lalrpop-util = "0.22"
 num-traits = "0.2.19"
+lazy_static = "1.5.0"
 
 [build-dependencies]
 lalrpop = "0.22"

@@ -49,10 +49,7 @@ pub Def: Definition = {
 
 pub EndianDef: Endian = "define" "endian" "=" <Endian> ";";
 
-pub Endian: Endian = {
-	"big" => Endian::Big,
-	"little" => Endian::Little,
-}
+pub Endian: Endian = <Ident> =>? Endian::parse(<>);
 
 pub AlignmentDef: Loc<usize> = "define" "alignment" "=" <Number> ";";
 
@@ -69,18 +66,13 @@ pub SpaceDef: Space = {
 		Space::new(id.map(|_| Ident::new("register")), kind, mods),
 };
 
-pub SpaceKind: SpaceKind = "type" "=" <space_kind>;
-
-space_kind: SpaceKind = {
-	"rom space" => SpaceKind::Rom,
-	"ram space" => SpaceKind::Ram,
-	"register space" => SpaceKind::Register,
+pub SpaceKind: SpaceKind = "type" "=" <Ident> =>? {
+	SpaceKind::parse(<>)
 };
 
 SpaceMod: SpaceMod = {
-	"size" "=" <Number> => SpaceMod::Size(<>),
-	"word size" "=" <Number> => SpaceMod::WordSize(<>),
-	"default" => SpaceMod::IsDefault,
+	<id:Ident> "=" <num:Number> =>? SpaceMod::parse(id, Some(num)),
+	<Ident> =>? SpaceMod::parse(<>, None),
 };
 
 pub VarnodeDef: Varnode = {
@@ -89,8 +81,7 @@ pub VarnodeDef: Varnode = {
 };
 
 VarnodeMod: VarnodeMod = {
-	"size" "=" <Number> => VarnodeMod::ByteSize(<>),
-	"offset" "=" <Number> => VarnodeMod::Offset(<>),
+	<id:Ident> "=" <num:Number> =>? VarnodeMod::parse(id, num),
 };
 
 pub TokenDef: Token = {
@@ -493,7 +484,6 @@ extern {
 	enum T<'input> {
     "alignment" => T::Normal(NT::Alignment),
     "attach" => T::Normal(NT::Attach),
-    "big" => T::Normal(NT::Big),
     "bin int" => T::Normal(NT::BinInt(<usize>)),
     "dec int" => T::Normal(NT::DecInt(<usize>)),
     "hex int" => T::Normal(NT::HexInt(<usize>)),
@@ -502,9 +492,6 @@ extern {
     "is" => T::Display(DT::Is),
     "if" => T::Normal(NT::If),
     "register" => T::Normal(NT::Register),
-    "register space" => T::Normal(NT::RegisterSpace),
-    "default" => T::Normal(NT::Default),
-    "little" => T::Normal(NT::Little),
     "build" => T::Normal(NT::Build),
     "call" => T::Normal(NT::Call),
     "dec" => T::Normal(NT::Dec),
@@ -515,19 +502,14 @@ extern {
     "hex" => T::Normal(NT::Hex),
     "local" => T::Normal(NT::Local),
     "macro" => T::Normal(NT::Macro),
-  	"offset" => T::Normal(NT::Offset),
     "pcodeop" => T::Normal(NT::PCodeOp),
-		"ram space" =>  T::Normal(NT::RamSpace),
-		"rom space" =>  T::Normal(NT::RomSpace),
     "return" => T::Normal(NT::Return),
     "signed" => T::Normal(NT::Signed),
-	  "size" => T::Normal(NT::Size),
 	  "space" => T::Normal(NT::Space),
     "token" => T::Normal(NT::Token),
     "type" => T::Normal(NT::Type),
     "unimpl" => T::Normal(NT::Unimpl),
     "variables" => T::Normal(NT::Variables),
-	  "word size" => T::Normal(NT::WordSize),
     "..." => T::Normal(NT::Ellipsis),
     "{" => T::Normal(NT::LBrace),
     "}" => T::Normal(NT::RBrace),

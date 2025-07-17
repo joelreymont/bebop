@@ -35,12 +35,6 @@ pub enum NormalToken<'input> {
     Alignment,
     #[token("attach", ignore(case))]
     Attach,
-    #[token("big", ignore(case))]
-    Big,
-    #[token("default", ignore(case))]
-    Default,
-    #[token("little", ignore(case))]
-    Little,
     #[token("build", ignore(case))]
     Build,
     #[token("call", ignore(case))]
@@ -61,24 +55,14 @@ pub enum NormalToken<'input> {
     Local,
     #[token("macro", ignore(case))]
     Macro,
-    #[token("offset", ignore(case))]
-    Offset,
     #[token("pcodeop", ignore(case))]
     PCodeOp,
     #[token("return", ignore(case))]
     Return,
     #[token("register", ignore(case))]
     Register,
-    #[token("ram_space", ignore(case))]
-    RamSpace,
-    #[token("rom_space", ignore(case))]
-    RomSpace,
-    #[token("register_space", ignore(case))]
-    RegisterSpace,
     #[token("signed", ignore(case))]
     Signed,
-    #[token("size", ignore(case))]
-    Size,
     #[token("space", ignore(case))]
     Space,
     #[token("token", ignore(case))]
@@ -89,8 +73,6 @@ pub enum NormalToken<'input> {
     Unimpl,
     #[token("variables", ignore(case))]
     Variables,
-    #[token("wordsize", ignore(case))]
-    WordSize,
     #[token("...")]
     Ellipsis,
     #[token("{")]
@@ -229,8 +211,7 @@ pub enum Token<'input> {
 pub type SpannedToken<'input> = (usize, Token<'input>, usize);
 
 type NormalLexer<'input> = logos::Lexer<'input, NormalToken<'input>>;
-type DisplayLexer<'input> =
-    logos::Lexer<'input, DisplayToken<'input>>;
+type DisplayLexer<'input> = logos::Lexer<'input, DisplayToken<'input>>;
 
 pub enum ModalLexer<'input> {
     Normal(NormalLexer<'input>),
@@ -319,9 +300,9 @@ impl<'input> Lexer<'input> {
         token: DisplayToken<'input>,
     ) -> Option<Result<SpannedToken<'input>, ParserError>> {
         if let DisplayToken::Error = token {
-            return Some(Err(ParserError::Lexer(
-                LexerError::Generic(span),
-            )));
+            return Some(Err(ParserError::Lexer(LexerError::Generic(
+                span,
+            ))));
         }
         Some(Ok((span.start, Token::Display(token), span.end)))
     }
@@ -359,15 +340,13 @@ impl<'input> Iterator for Lexer<'input> {
     fn next(&mut self) -> Option<Self::Item> {
         match self.lexer.as_mut().unwrap() {
             ModalLexer::Normal(lexer) => {
-                let token =
-                    lexer.next()?.unwrap_or(NormalToken::Error);
+                let token = lexer.next()?.unwrap_or(NormalToken::Error);
                 let span = lexer.span();
                 self.update_state(Token::Normal(token));
                 self.handle_normal_token(span, token)
             }
             ModalLexer::Display(lexer) => {
-                let token =
-                    lexer.next()?.unwrap_or(DisplayToken::Error);
+                let token = lexer.next()?.unwrap_or(DisplayToken::Error);
                 let span = lexer.span();
                 self.update_state(Token::Display(token));
                 self.handle_display_token(span, token)

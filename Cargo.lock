@@ -140,6 +140,7 @@ dependencies = [
  "internment",
  "lalrpop",
  "lalrpop-util",
+ "lazy_static",
  "logos",
  "num-traits",
  "ron 0.8.1",

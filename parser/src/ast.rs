@@ -1,5 +1,9 @@
+use crate::error::*;
 use internment::Intern;
+use lalrpop_util::ParseError;
+use lazy_static::lazy_static;
 use serde::{Serialize, Serializer};
+use std::collections::HashMap;
 use std::{fmt, ops::Deref};
 
 use bebop_util::meta::*;
@@ -49,6 +53,35 @@ impl Serialize for Ident {
     }
 }
 
+enum Special {
+    Big,
+    Little,
+    Size,
+    WordSize,
+    Offset,
+    IsDefault,
+    RomSpace,
+    RamSpace,
+    RegisterSpace,
+}
+
+lazy_static! {
+    static ref SPECIAL: HashMap<Ident, Special> = {
+        let mut m = HashMap::new();
+        use Special::*;
+        m.insert(Ident::new("big"), Big);
+        m.insert(Ident::new("little"), Little);
+        m.insert(Ident::new("size"), Size);
+        m.insert(Ident::new("wordsize"), WordSize);
+        m.insert(Ident::new("default"), IsDefault);
+        m.insert(Ident::new("offset"), Offset);
+        m.insert(Ident::new("rom_space"), RomSpace);
+        m.insert(Ident::new("ram_space"), RamSpace);
+        m.insert(Ident::new("register_space"), RegisterSpace);
+        m
+    };
+}
+
 #[derive(Clone, PartialEq, Serialize)]
 pub enum Definition {
     Endian(Loc<Endian>),
@@ -62,7 +95,7 @@ pub enum Definition {
     Macro(Macro),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
 pub enum Endian {
     Big,
     Little,
@@ -73,6 +106,29 @@ impl fmt::Display for Endian {
         match self {
             Self::Big => write!(f, "big"),
             Self::Little => write!(f, "little"),
+        }
+    }
+}
+
+impl Endian {
+    pub fn parse<'a>(
+        id: Loc<Ident>,
+    ) -> Result<Endian, LalrParseError<'a>> {
+        let span = id.span();
+        let id = Ident::new(id.value().to_lowercase());
+        let error = ParseError::User {
+            error: ParserError::InvalidToken(span),
+        };
+        match SPECIAL.get(&id) {
+            Some(value) => {
+                use Special::*;
+                match value {
+                    Big => Ok(Endian::Big),
+                    Little => Ok(Endian::Little),
+                    _ => Err(error),
+                }
+            }
+            None => Err(error),
         }
     }
 }
@@ -130,6 +186,29 @@ pub enum SpaceMod {
     IsDefault,
 }
 
+impl SpaceMod {
+    pub fn parse<'a>(
+        id: Loc<Ident>,
+        num: Option<Loc<usize>>,
+    ) -> Result<SpaceMod, LalrParseError<'a>> {
+        let span = id.span();
+        let id = Ident::new(id.value().to_lowercase());
+        let error = ParseError::User {
+            error: ParserError::InvalidToken(span),
+        };
+        use Special::*;
+        match SPECIAL.get(&id) {
+            Some(kind) => match kind {
+                Size => Ok(SpaceMod::Size(num.unwrap())),
+                WordSize => Ok(SpaceMod::WordSize(num.unwrap())),
+                IsDefault => Ok(SpaceMod::IsDefault),
+                _ => Err(error),
+            },
+            None => Err(error),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Serialize)]
 pub struct Space {
     pub id: Loc<Ident>,
@@ -163,17 +242,62 @@ impl Space {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
 pub enum SpaceKind {
     Rom,
     Ram,
     Register,
 }
 
+impl SpaceKind {
+    pub fn parse<'a>(
+        id: Loc<Ident>,
+    ) -> Result<SpaceKind, LalrParseError<'a>> {
+        let span = id.span();
+        let id = Ident::new(id.value().to_lowercase());
+        let error = ParseError::User {
+            error: ParserError::InvalidToken(span),
+        };
+        use Special::*;
+        match SPECIAL.get(&id) {
+            Some(kind) => match kind {
+                RomSpace => Ok(SpaceKind::Rom),
+                RamSpace => Ok(SpaceKind::Ram),
+                RegisterSpace => Ok(SpaceKind::Register),
+                _ => Err(error),
+            },
+            None => Err(error),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Serialize)]
+
 pub enum VarnodeMod {
     ByteSize(Loc<usize>),
     Offset(Loc<usize>),
+}
+
+impl VarnodeMod {
+    pub fn parse<'a>(
+        id: Loc<Ident>,
+        num: Loc<usize>,
+    ) -> Result<VarnodeMod, LalrParseError<'a>> {
+        let span = id.span();
+        let id = Ident::new(id.value().to_lowercase());
+        let error = ParseError::User {
+            error: ParserError::InvalidToken(span),
+        };
+        use Special::*;
+        match SPECIAL.get(&id) {
+            Some(kind) => match kind {
+                Size => Ok(VarnodeMod::ByteSize(num)),
+                Offset => Ok(VarnodeMod::Offset(num)),
+                _ => Err(error),
+            },
+            None => Err(error),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Serialize)]
