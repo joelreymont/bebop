@@ -751,6 +751,7 @@ pub enum Output {
     RegisterIndex(Ptr<RegisterIndex>),
     BitField(Ptr<BitField>),
     Scanner(PtrMut<Scanner>),
+    Variable(Ptr<Variable>),
 }
 
 impl Output {
@@ -769,6 +770,7 @@ impl Output {
                 }
                 Type::BitField(x) => Some(Output::BitField(x.clone())),
                 Type::Scanner(x) => Some(Output::Scanner(x.clone())),
+                Type::Variable(x) => Some(Output::Variable(x.clone())),
                 _ => return Err(LiftError::Invalid(id.span())),
             },
         };
