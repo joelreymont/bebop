@@ -69,6 +69,13 @@ impl<V, T> Tagged<V, T> {
         }
     }
 
+    pub fn map_tag<U, F: FnOnce(T) -> U>(self, f: F) -> Tagged<V, U> {
+        Tagged {
+            value: self.value,
+            tag: f(self.tag),
+        }
+    }
+
     pub fn tag(&self) -> &T {
         &self.tag
     }
@@ -77,9 +84,9 @@ impl<V, T> Tagged<V, T> {
         &mut self.tag
     }
 
-    pub fn into(self) -> (V, T) {
-        (self.value, self.tag)
-    }
+    // pub fn into(self) -> (V, T) {
+    //     (self.value, self.tag)
+    // }
 
     pub fn as_mut(&mut self) -> (&mut V, &mut T) {
         (&mut self.value, &mut self.tag)

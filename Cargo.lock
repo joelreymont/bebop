@@ -122,6 +122,8 @@ dependencies = [
  "ariadne",
  "bebop-parser",
  "bebop-util",
+ "bitflags 2.9.1",
+ "id-arena",
  "insta",
  "internment",
  "ordermap",
@@ -378,6 +380,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "id-arena"
+version = "2.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25a2bc672d1148e28034f176e01fffebb08b35768468cc954630da77a1449005"
+
+[[package]]
 name = "indexmap"
 version = "2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -385,6 +393,7 @@ checksum = "fe4cd85333e22411419a0bcae1297d25e58c9443848b11dc6a86fefe8c78a661"
 dependencies = [
  "equivalent",
  "hashbrown",
+ "serde",
 ]
 
 [[package]]
@@ -568,6 +577,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6d6bff06e4a5dc6416bead102d3e63c480dd852ffbb278bf8cfeb4966b329609"
 dependencies = [
  "indexmap",
+ "serde",
 ]
 
 [[package]]

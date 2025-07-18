@@ -11,7 +11,9 @@ serde = { version = "1", features = ["derive", "rc"] }
 ron = "0.8"
 ariadne = "0.5.1"
 thiserror = "2.0.12"
-ordermap = "0.5.8"
+ordermap = { version = "0.5.8", features = ["serde"] }
+bitflags = { version = "2.9.1", features = ["std", "serde"] }
+id-arena = "2.2.1"
 
 [dev-dependencies]
 insta = { version = "1.43.1", features = ["ron"] }

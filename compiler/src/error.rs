@@ -1,7 +1,12 @@
-use crate::hir;
+use crate::hir::*;
 use bebop_parser::error::*;
 use bebop_util::meta::*;
 use std::fmt;
+
+#[derive(Clone)]
+pub enum TypeEnvError {
+    TooManyEntries(ExprId),
+}
 
 #[derive(Clone)]
 pub enum LiftError {
@@ -10,7 +15,7 @@ pub enum LiftError {
     Duplicate(Span),
     TypeMismatch(Span),
     SizeMismatch { span: Span, want: usize, got: usize },
-    InternalTypeMismatch { ty: hir::Type },
+    InternalTypeMismatch(Span),
     ParserError(ParserError),
 }
 
@@ -26,8 +31,11 @@ impl fmt::Debug for LiftError {
             Self::SizeMismatch { want, got, .. } => {
                 write!(f, "Size mismatch: want {want} but got {got}")
             }
-            Self::InternalTypeMismatch { ty, .. } => {
-                write!(f, "Internal type mismatch {ty:?}")
+            // Self::InternalTypeMismatch { ty, .. } => {
+            //     write!(f, "Internal type mismatch {ty:?}")
+            // }
+            Self::InternalTypeMismatch { .. } => {
+                write!(f, "Internal type mismatch")
             }
             Self::ParserError(e) => write!(f, "Parser error {e:?}"),
         }
@@ -42,7 +50,7 @@ impl Spanned for LiftError {
             Self::Duplicate(span) => *span,
             Self::TypeMismatch(span) => *span,
             Self::SizeMismatch { span, .. } => *span,
-            Self::InternalTypeMismatch { ty } => ty.span(),
+            Self::InternalTypeMismatch(span) => *span,
             Self::ParserError(e) => e.span(),
         }
     }
