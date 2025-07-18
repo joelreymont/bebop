@@ -508,7 +508,7 @@ impl Statement {
         use ast::Statement::*;
         match stmt {
             Bind { lhs, rhs } => {
-                scope.add_vars(&lhs, None)?;
+                scope.add_local_vars(&lhs, None)?;
                 let stmt = Statement::Bind {
                     lhs: Expr::lift(scope, lhs)?,
                     rhs: Expr::lift(scope, rhs)?,
@@ -827,6 +827,10 @@ impl Scope {
             Type::BitField(x) => Ok(BitField(x.clone())),
             Type::Scanner(x) => Ok(Scanner(x.clone())),
             Type::Variable(x) => Ok(Variable(x.clone())),
+            Type::Intrinsic(x) => Ok(FunCall {
+                intrinsic: x.clone(),
+                args: Vec::new(),
+            }),
             _ => Err(LiftError::Invalid(span)),
         }
     }
@@ -843,7 +847,7 @@ impl Scope {
         self.env.is_empty()
     }
 
-    pub fn add_vars(
+    pub fn add_local_vars(
         &mut self,
         expr: &ast::Expr,
         expected_size: Option<usize>,
@@ -853,14 +857,14 @@ impl Scope {
             Sized { expr, size } => {
                 let size = *size.value();
                 let span = expr.span();
-                if let Some(expected) = expected_size
-                    && size != expected
-                {
-                    return Err(LiftError::TypeMismatch(span));
-                }
-                self.add_vars(expr, Some(size))?
+                expected_size
+                    .filter(|&expected| size == expected)
+                    .ok_or(LiftError::TypeMismatch(span))?;
+                self.add_local_vars(expr, Some(size))?
             }
-            Pointer { expr, .. } => self.add_vars(expr, expected_size)?,
+            Pointer { expr, .. } => {
+                self.add_local_vars(expr, expected_size)?
+            }
             Id(id) => {
                 let id_ = id.value();
                 let id = self::Id::from(id.clone());
@@ -1088,6 +1092,18 @@ impl Default for Architecture {
             default_region: None,
             register_maps: Vec::new(),
         };
+        // const space
+        let region_ident = Ident::new("const");
+        let region_id = Id::new(region_ident, 0..0);
+        let region = MemoryRegion {
+            id: region_id,
+            kind: ast::SpaceKind::Rom,
+            size: 0,
+            word_size: 1,
+            is_default: false,
+        };
+        arch.scope
+            .insert(region_ident, Type::MemoryRegion(Rc::new(region)));
         INTRINSICS.iter().for_each(|name| {
             let ident = Ident::new(name);
             let id = Id::new(ident, 0..0);
