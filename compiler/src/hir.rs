@@ -880,7 +880,7 @@ impl Scope {
             }
             Id(id) => {
                 let id_ = id.value();
-                let id = self::Id::from(id.clone());
+                let id = self::Id::from(*id);
                 if self
                     .parent_env
                     .as_ref()
@@ -976,7 +976,7 @@ impl Architecture {
         let bit_width = token.bit_width;
         for field in token.fields {
             let mut field = BitField::from(field);
-            field.bit_width = bit_width.clone().into_value();
+            field.bit_width = bit_width.into_value();
             self.scope
                 .insert(field.id.ident, Type::BitField(Rc::new(field)));
         }
@@ -990,8 +990,8 @@ impl Architecture {
         let varnode = varnode.into_value();
         for id in varnode.ids {
             let register = Register {
-                id: Id::from(id.clone()),
-                size: varnode.byte_size.clone().into_value(),
+                id: Id::from(id),
+                size: varnode.byte_size.into_value(),
             };
             self.scope.insert(
                 id.into_value(),
@@ -1065,7 +1065,7 @@ impl Architecture {
         &mut self,
         ctr: ast::Constructor,
     ) -> Result<(), LiftError> {
-        let (id, span) = ctr.id.clone().into();
+        let id = ctr.id.value();
         let is_instruction = ctr.is_instruction;
         let result = self
             .scope
@@ -1074,19 +1074,18 @@ impl Architecture {
             .map(|x: Rc<RefCell<Scanner>>| Some(x))
             .or(Ok(None));
         let result = match (is_instruction, result?) {
-            (true, Some(_)) => Err(LiftError::Duplicate(span)),
-            (_, None) => {
+            (false, Some(scanner)) => Ok(scanner.clone()),
+            _ => {
                 let scanner = Scanner {
-                    id: self::Id::from(ctr.id.clone()),
+                    id: self::Id::from(ctr.id),
                     is_instruction,
                     rules: Vec::new(),
                 };
                 let scanner = Rc::new(RefCell::new(scanner));
                 let cloned = scanner.clone();
-                self.scope.insert(id, Type::Scanner(scanner));
+                self.scope.insert(*id, Type::Scanner(scanner));
                 Ok(cloned)
             }
-            (false, Some(scanner)) => Ok(scanner.clone()),
         };
         let scanner = result?;
         let mut scanner = scanner.borrow_mut();
