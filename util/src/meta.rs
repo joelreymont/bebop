@@ -5,10 +5,29 @@ use std::{
     ops::{Deref, DerefMut, Range},
 };
 
-pub type Span = Range<usize>;
+#[derive(Copy, Clone, Debug, PartialEq, Default)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl From<Span> for Range<usize> {
+    fn from(value: Span) -> Range<usize> {
+        value.start..value.end
+    }
+}
+
+impl From<Range<usize>> for Span {
+    fn from(value: Range<usize>) -> Span {
+        Self {
+            start: value.start,
+            end: value.end,
+        }
+    }
+}
 
 pub trait Spanned {
-    fn span(&self) -> &Span;
+    fn span(&self) -> Span;
 }
 
 #[derive(Copy, Clone)]
@@ -110,6 +129,6 @@ pub type Loc<V> = Tagged<V, Span>;
 
 impl<V> Loc<V> {
     pub fn span(&self) -> Span {
-        self.tag.start..self.tag.end
+        self.tag
     }
 }

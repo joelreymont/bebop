@@ -227,8 +227,8 @@ impl Space {
         let this = Self {
             id,
             kind,
-            size: Loc::new(0, 0..0),
-            word_size: Loc::new(1, 0..0),
+            size: Loc::new(0, Span::default()),
+            word_size: Loc::new(1, Span::default()),
             is_default: true,
         };
         mods.into_iter().fold(this, |mut this, m| {
@@ -311,8 +311,8 @@ impl Varnode {
     pub fn new(ids: Vec<Loc<Ident>>, mods: Vec<VarnodeMod>) -> Self {
         let this = Self {
             ids,
-            byte_size: Loc::new(0, 0..0),
-            offset: Loc::new(0, 0..0),
+            byte_size: Loc::new(0, Span::default()),
+            offset: Loc::new(0, Span::default()),
         };
         mods.into_iter().fold(this, |mut this, m| {
             match m {

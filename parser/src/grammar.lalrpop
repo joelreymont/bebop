@@ -8,7 +8,7 @@ use super::{
 grammar<'input>();
 
 Located<T>: Loc<T> = <left: @L> <node: T> <right: @R> =>
-	Loc::new(node, left..right);
+	Loc::new(node, (left..right).into());
 
 Sep<T, S>: Vec<T> = {
     <mut v:(<T> S)*> <e:T?> => match e {
@@ -375,12 +375,12 @@ pub Assignment: Statement = {
 
 pub Declaration: Statement = {
 	"local" <left:@L> <lhs:ExprIdent> <right:@R> ":" <size:Number> => {
-	    let unit = Expr::Unit(Loc::new((), left..right));
+	    let unit = Expr::Unit(Loc::new((), (left..right).into()));
 		let rhs = Expr::Sized { expr: Box::new(unit), size };
 		Statement::Bind { lhs, rhs }
 	},
 	"local" <left:@L> <lhs:ExprIdent> <right:@R> => {
-	    let unit = Expr::Unit(Loc::new((), left..right));
+	    let unit = Expr::Unit(Loc::new((), (left..right).into()));
 		Statement::Bind { lhs, rhs: unit }
 	}
 

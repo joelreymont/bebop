@@ -1,6 +1,6 @@
 use ariadne::{ColorGenerator, Label, Report, ReportKind, Source};
 use bebop_compiler::{error::*, hir::*};
-use bebop_parser::{DefsParserEx, Parser, parse};
+use bebop_parser::{parse, DefsParserEx, Parser};
 use bebop_util::meta::*;
 use clap::Parser as ArgParser;
 use std::fs;

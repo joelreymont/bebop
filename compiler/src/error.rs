@@ -1,14 +1,16 @@
+use crate::hir;
 use bebop_parser::error::*;
 use bebop_util::meta::*;
 use std::fmt;
 
-#[derive(PartialEq, Eq, Clone)]
+#[derive(Clone)]
 pub enum LiftError {
     Unknown(Span),
     Invalid(Span),
     Duplicate(Span),
     TypeMismatch(Span),
-    InternalTypeMismatch(Span),
+    SizeMismatch { span: Span, want: usize, got: usize },
+    InternalTypeMismatch { ty: hir::Type },
     ParserError(ParserError),
 }
 
@@ -21,8 +23,11 @@ impl fmt::Debug for LiftError {
             Self::TypeMismatch(span) => {
                 write!(f, "Type mismatch {span:?}")
             }
-            Self::InternalTypeMismatch(span) => {
-                write!(f, "Internal type mismatch {span:?}")
+            Self::SizeMismatch { want, got, .. } => {
+                write!(f, "Size mismatch: want {want} but got {got}")
+            }
+            Self::InternalTypeMismatch { ty, .. } => {
+                write!(f, "Internal type mismatch {ty:?}")
             }
             Self::ParserError(e) => write!(f, "Parser error {e:?}"),
         }
@@ -30,13 +35,14 @@ impl fmt::Debug for LiftError {
 }
 
 impl Spanned for LiftError {
-    fn span(&self) -> &Span {
+    fn span(&self) -> Span {
         match self {
-            Self::Unknown(span) => span,
-            Self::Invalid(span) => span,
-            Self::Duplicate(span) => span,
-            Self::TypeMismatch(span) => span,
-            Self::InternalTypeMismatch(span) => span,
+            Self::Unknown(span) => *span,
+            Self::Invalid(span) => *span,
+            Self::Duplicate(span) => *span,
+            Self::TypeMismatch(span) => *span,
+            Self::SizeMismatch { span, .. } => *span,
+            Self::InternalTypeMismatch { ty } => ty.span(),
             Self::ParserError(e) => e.span(),
         }
     }

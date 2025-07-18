@@ -286,7 +286,7 @@ impl<'input> Lexer<'input> {
             }
             NormalToken::Error => {
                 return Some(Err(ParserError::Lexer(
-                    LexerError::Generic(span),
+                    LexerError::Generic(span.into()),
                 )));
             }
             _ => (),
@@ -302,7 +302,7 @@ impl<'input> Lexer<'input> {
     ) -> Option<Result<SpannedToken<'input>, ParserError>> {
         if let DisplayToken::Error = token {
             return Some(Err(ParserError::Lexer(LexerError::Generic(
-                span,
+                span.into(),
             ))));
         }
         Some(Ok((span.start, Token::Display(token), span.end)))

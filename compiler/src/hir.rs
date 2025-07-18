@@ -27,6 +27,12 @@ impl From<Span> for Tag {
     }
 }
 
+impl Spanned for Tag {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Hint {
     Unsigned,
@@ -45,9 +51,23 @@ pub enum Type {
     BitField(Ptr<BitField>),
     Intrinsic(Ptr<Intrinsic>),
     Macro(Ptr<Macro>),
-    PCodeOp(Ptr<PCodeOp>),
     Scanner(PtrMut<Scanner>),
     Variable(Ptr<Variable>),
+}
+
+impl Spanned for Type {
+    fn span(&self) -> Span {
+        match self {
+            Self::MemoryRegion(x) => x.id.span(),
+            Self::Register(x) => x.id.span(),
+            Self::RegisterIndex(x) => x.bit_field.id.span(),
+            Self::BitField(x) => x.id.span(),
+            Self::Intrinsic(x) => x.id.span(),
+            Self::Macro(x) => x.id.span(),
+            Self::Variable(x) => x.id.span(),
+            Self::Scanner(x) => x.borrow().id.clone().span(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -269,7 +289,7 @@ impl TryFrom<Loc<ast::UnaryOp>> for UnaryOp {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Id {
     pub ident: Ident,
     pub tag: Tag,
@@ -300,6 +320,12 @@ impl Serialize for Id {
     }
 }
 
+impl Spanned for Id {
+    fn span(&self) -> Span {
+        self.tag.span()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MemoryRegion {
     pub id: Id,
@@ -316,7 +342,7 @@ impl TryFrom<&Type> for Ptr<MemoryRegion> {
         if let Type::MemoryRegion(x) = ty {
             Ok(x.clone())
         } else {
-            Err(LiftError::InternalTypeMismatch(0..0))
+            Err(LiftError::InternalTypeMismatch { ty: ty.clone() })
         }
     }
 }
@@ -334,12 +360,12 @@ impl TryFrom<&Type> for Ptr<Register> {
         if let Type::Register(x) = ty {
             Ok(x.clone())
         } else {
-            Err(LiftError::InternalTypeMismatch(0..0))
+            Err(LiftError::InternalTypeMismatch { ty: ty.clone() })
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RegisterMap {
     pub registers: Vec<Option<Ptr<Register>>>,
 }
@@ -374,7 +400,7 @@ impl TryFrom<&Type> for Ptr<BitField> {
         if let Type::BitField(x) = ty {
             Ok(x.clone())
         } else {
-            Err(LiftError::InternalTypeMismatch(0..0))
+            Err(LiftError::InternalTypeMismatch { ty: ty.clone() })
         }
     }
 }
@@ -392,7 +418,7 @@ impl TryFrom<&Type> for Ptr<RegisterIndex> {
         if let Type::RegisterIndex(x) = ty {
             Ok(x.clone())
         } else {
-            Err(LiftError::InternalTypeMismatch(0..0))
+            Err(LiftError::InternalTypeMismatch { ty: ty.clone() })
         }
     }
 }
@@ -409,7 +435,7 @@ impl TryFrom<&Type> for Ptr<Variable> {
         if let Type::Variable(x) = ty {
             Ok(x.clone())
         } else {
-            Err(LiftError::InternalTypeMismatch(0..0))
+            Err(LiftError::InternalTypeMismatch { ty: ty.clone() })
         }
     }
 }
@@ -426,7 +452,7 @@ impl TryFrom<&Type> for Ptr<Intrinsic> {
         if let Type::Intrinsic(x) = ty {
             Ok(x.clone())
         } else {
-            Err(LiftError::InternalTypeMismatch(0..0))
+            Err(LiftError::InternalTypeMismatch { ty: ty.clone() })
         }
     }
 }
@@ -607,24 +633,7 @@ impl TryFrom<&Type> for Ptr<Macro> {
         if let Type::Macro(x) = ty {
             Ok(x.clone())
         } else {
-            Err(LiftError::InternalTypeMismatch(0..0))
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct PCodeOp {
-    pub id: Id,
-}
-
-impl TryFrom<&Type> for Ptr<PCodeOp> {
-    type Error = LiftError;
-
-    fn try_from(ty: &Type) -> Result<Self, Self::Error> {
-        if let Type::PCodeOp(x) = ty {
-            Ok(x.clone())
-        } else {
-            Err(LiftError::InternalTypeMismatch(0..0))
+            Err(LiftError::InternalTypeMismatch { ty: ty.clone() })
         }
     }
 }
@@ -643,7 +652,7 @@ impl TryFrom<&Type> for PtrMut<Scanner> {
         if let Type::Scanner(x) = ty {
             Ok(x.clone())
         } else {
-            Err(LiftError::InternalTypeMismatch(0..0))
+            Err(LiftError::InternalTypeMismatch { ty: ty.clone() })
         }
     }
 }
@@ -857,9 +866,13 @@ impl Scope {
             Sized { expr, size } => {
                 let size = *size.value();
                 let span = expr.span();
-                expected_size
-                    .filter(|&expected| size == expected)
-                    .ok_or(LiftError::TypeMismatch(span))?;
+                if expected_size.is_some_and(|expected| size != expected) {
+                    return Err(LiftError::SizeMismatch {
+                        span,
+                        want: expected_size.unwrap(),
+                        got: size,
+                    });
+                }
                 self.add_local_vars(expr, Some(size))?
             }
             Pointer { expr, .. } => {
@@ -1024,8 +1037,8 @@ impl Architecture {
 
     fn lift_pcode_op(&mut self, id: Loc<Ident>) -> Result<(), LiftError> {
         let id = Id::from(id);
-        let op = PCodeOp { id: id.clone() };
-        self.scope.insert(id.ident, Type::PCodeOp(Rc::new(op)));
+        let op = Intrinsic { id: id.clone() };
+        self.scope.insert(id.ident, Type::Intrinsic(Rc::new(op)));
         Ok(())
     }
 
@@ -1094,7 +1107,7 @@ impl Default for Architecture {
         };
         // const space
         let region_ident = Ident::new("const");
-        let region_id = Id::new(region_ident, 0..0);
+        let region_id = Id::new(region_ident, Span::default());
         let region = MemoryRegion {
             id: region_id,
             kind: ast::SpaceKind::Rom,
@@ -1106,7 +1119,7 @@ impl Default for Architecture {
             .insert(region_ident, Type::MemoryRegion(Rc::new(region)));
         INTRINSICS.iter().for_each(|name| {
             let ident = Ident::new(name);
-            let id = Id::new(ident, 0..0);
+            let id = Id::new(ident, Span::default());
             let intrinsic = Intrinsic { id };
             arch.scope
                 .insert(ident, Type::Intrinsic(Rc::new(intrinsic)));
