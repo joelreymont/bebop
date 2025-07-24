@@ -63,13 +63,20 @@ impl TypeEnv {
     }
 
     pub fn find(&self, id: &Id, mask: Types) -> Option<ExprPtr> {
+        self.find_iter(id, mask).next()
+    }
+
+    pub fn find_iter(
+        &self,
+        id: &Id,
+        mask: Types,
+    ) -> impl Iterator<Item = ExprPtr> {
         self.env
             .iter()
             .filter(move |((ident, types), _)| {
                 ident == id.ident() && types.intersects(mask)
             })
             .map(|(_, expr)| expr.clone())
-            .next()
     }
 
     pub fn len(&self) -> usize {

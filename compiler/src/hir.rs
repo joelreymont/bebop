@@ -650,12 +650,24 @@ pub struct Scanner {
     pub is_instruction: bool,
 }
 
+impl<'a> TryFrom<&'a mut Expr> for &'a mut Scanner {
+    type Error = LiftError;
+
+    fn try_from(expr: &'a mut Expr) -> Result<Self, Self::Error> {
+        match expr {
+            Expr::Scanner(scanner) => Ok(scanner),
+            _ => Err(LiftError::InternalTypeMismatch(expr.span())),
+        }
+    }
+}
+
 impl Scanner {
     pub fn macroexpand(&mut self) -> Result<(), LiftError> {
         for expr in self.rules.iter_mut() {
-            expr.modify(|expr| match expr {
-                Expr::Rule(rule) => Ok(rule.macroexpand()?),
-                _ => Err(LiftError::InternalTypeMismatch(expr.span())),
+            expr.modify(|expr| {
+                let rule: &mut Rule = expr.try_into()?;
+                rule.macroexpand()?;
+                Ok(())
             })?;
         }
         Ok(())
@@ -673,6 +685,17 @@ pub struct Rule {
     pub actions: Vec<ExprPtr>,
     pub pattern: Pattern,
     pub scope: Scope,
+}
+
+impl<'a> TryFrom<&'a mut Expr> for &'a mut Rule {
+    type Error = LiftError;
+
+    fn try_from(expr: &'a mut Expr) -> Result<Self, Self::Error> {
+        match expr {
+            Expr::Rule(rule) => Ok(rule),
+            _ => Err(LiftError::InternalTypeMismatch(expr.span())),
+        }
+    }
 }
 
 impl Rule {
@@ -999,12 +1022,9 @@ impl Architecture {
             let rule = Rule::lift(self.scope.to_local(), ctr)?;
             let rule = ExprPtr::new(Expr::Rule(rule), span);
             scanner.modify(|expr| {
-                if let Expr::Scanner(scanner) = expr {
-                    scanner.rules.push(rule.clone());
-                    Ok(())
-                } else {
-                    Err(LiftError::InternalTypeMismatch(span))
-                }
+                let scanner: &mut Scanner = expr.try_into()?;
+                scanner.rules.push(rule.clone());
+                Ok(())
             })?;
         }
         if !existing {
@@ -1020,9 +1040,10 @@ impl Architecture {
             .filter(|((_, types), _)| *types == Types::Scanner)
             .map(|(_, expr)| expr);
         for expr in iter {
-            expr.modify(|expr| match expr {
-                Expr::Scanner(scanner) => Ok(scanner.macroexpand()?),
-                _ => Err(LiftError::InternalTypeMismatch(expr.span())),
+            expr.modify(|expr| {
+                let scanner: &mut Scanner = expr.try_into()?;
+                scanner.macroexpand()?;
+                Ok(())
             })?;
         }
         Ok(())

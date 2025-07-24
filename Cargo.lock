@@ -123,7 +123,6 @@ dependencies = [
  "bebop-parser",
  "bebop-util",
  "bitflags 2.9.1",
- "id-arena",
  "insta",
  "internment",
  "ordermap",
@@ -378,12 +377,6 @@ checksum = "589533453244b0995c858700322199b2becb13b627df2851f64a2775d024abcf"
 dependencies = [
  "windows-sys",
 ]
-
-[[package]]
-name = "id-arena"
-version = "2.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25a2bc672d1148e28034f176e01fffebb08b35768468cc954630da77a1449005"
 
 [[package]]
 name = "indexmap"
