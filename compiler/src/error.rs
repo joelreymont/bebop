@@ -1,11 +1,11 @@
-use crate::{hir::*, pool::*};
+use crate::hir::*;
 use bebop_parser::error::*;
 use bebop_util::meta::*;
 use std::fmt;
 
 #[derive(Clone)]
 pub enum TypeEnvError {
-    TooManyEntries(ExprId),
+    TooManyEntries(ExprPtr),
 }
 
 #[derive(Clone)]
@@ -31,9 +31,6 @@ impl fmt::Debug for LiftError {
             Self::SizeMismatch { want, got, .. } => {
                 write!(f, "Size mismatch: want {want} but got {got}")
             }
-            // Self::InternalTypeMismatch { ty, .. } => {
-            //     write!(f, "Internal type mismatch {ty:?}")
-            // }
             Self::InternalTypeMismatch { .. } => {
                 write!(f, "Internal type mismatch")
             }

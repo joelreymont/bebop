@@ -5,7 +5,7 @@ use std::{
     ops::{Deref, DerefMut, Range},
 };
 
-#[derive(Copy, Clone, Debug, PartialEq, Default)]
+#[derive(Copy, Clone, Debug, PartialEq, Default, Serialize)]
 pub struct Span {
     pub start: usize,
     pub end: usize,

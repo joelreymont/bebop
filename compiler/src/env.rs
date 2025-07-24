@@ -1,10 +1,10 @@
 use crate::error::LiftError;
-use crate::{hir::*, pool::*};
+use crate::hir::*;
 use bebop_parser::ast;
 use bebop_util::meta::*;
 use bitflags::bitflags;
 use core::hash::Hash;
-use ordermap::{OrderMap, OrderSet};
+use ordermap::map::{Iter, IterMut, OrderMap};
 use serde::Serialize;
 use std::option::Option::*;
 
@@ -22,9 +22,14 @@ bitflags! {
     }
 }
 
+// #[derive(Debug, Clone, Serialize)]
+// struct Entry(Types, ExprPtr);
+type Key = (Ident, Types);
+type Env = OrderMap<Key, ExprPtr>;
+
 #[derive(Debug, PartialEq, Serialize)]
 pub struct TypeEnv {
-    env: OrderMap<Ident, OrderSet<(Types, ExprId)>>,
+    env: Env,
 }
 
 impl Clone for TypeEnv {
@@ -48,20 +53,23 @@ impl TypeEnv {
         Self::default()
     }
 
-    pub fn insert(&mut self, id: Id, expr_id: ExprId, types: Types) {
-        self.env
-            .entry(*id.ident())
-            .and_modify(|values| _ = values.insert((types, expr_id)))
-            .or_insert(OrderSet::from([(types, expr_id)]));
+    pub fn insert(&mut self, id: Id, expr: ExprPtr, types: Types) {
+        self.env.insert((*id.ident(), types), expr);
     }
 
-    pub fn get(&self, id: &Id, types: Types) -> Option<ExprId> {
-        self.env.get(id.ident()).and_then(|values| {
-            values
-                .iter()
-                .find(|(value_types, _)| value_types.intersects(types))
-                .map(|(_, id)| *id)
-        })
+    pub fn get(&self, id: &Id, types: Types) -> Option<ExprPtr> {
+        let key = (*id.ident(), types);
+        self.env.get(&key).cloned()
+    }
+
+    pub fn find(&self, id: &Id, mask: Types) -> Option<ExprPtr> {
+        self.env
+            .iter()
+            .filter(move |((ident, types), _)| {
+                ident == id.ident() && types.intersects(mask)
+            })
+            .map(|(_, expr)| expr.clone())
+            .next()
     }
 
     pub fn len(&self) -> usize {
@@ -70,6 +78,14 @@ impl TypeEnv {
 
     pub fn is_empty(&self) -> bool {
         self.env.is_empty()
+    }
+
+    pub fn iter<'a>(&'a self) -> Iter<'a, Key, ExprPtr> {
+        self.env.iter()
+    }
+
+    pub fn iter_mut<'a>(&'a mut self) -> IterMut<'a, Key, ExprPtr> {
+        self.env.iter_mut()
     }
 }
 
@@ -110,8 +126,8 @@ impl Scope {
             .ok_or(LiftError::Unknown(*id))
     }
 
-    pub fn insert(&mut self, id: Id, expr_id: ExprId, types: Types) {
-        self.env.insert(id, expr_id, types)
+    pub fn insert(&mut self, id: Id, expr: ExprPtr, types: Types) {
+        self.env.insert(id, expr, types)
     }
 
     pub fn len(&self) -> usize {
@@ -122,9 +138,24 @@ impl Scope {
         self.env.is_empty()
     }
 
+    pub fn find(&self, id: &Id, mask: Types) -> LiftResult {
+        self.parent_env
+            .as_ref()
+            .and_then(|env| env.find(id, mask))
+            .or_else(|| self.env.find(id, mask))
+            .ok_or(LiftError::Unknown(*id))
+    }
+
+    pub fn iter<'a>(&'a self) -> Iter<'a, Key, ExprPtr> {
+        self.env.iter()
+    }
+
+    pub fn iter_mut<'a>(&'a mut self) -> IterMut<'a, Key, ExprPtr> {
+        self.env.iter_mut()
+    }
+
     pub fn add_local_vars(
         &mut self,
-        pool: &mut ExprPool,
         expr: &ast::Expr,
         expected_size: Option<usize>,
     ) -> Result<(), LiftError> {
@@ -140,10 +171,10 @@ impl Scope {
                         got: size,
                     });
                 }
-                self.add_local_vars(pool, expr, Some(size))?
+                self.add_local_vars(expr, Some(size))?
             }
             Pointer { expr, .. } => {
-                self.add_local_vars(pool, expr, expected_size)?
+                self.add_local_vars(expr, expected_size)?
             }
             Id(id) => {
                 let id: self::Id = id.into();
@@ -156,7 +187,7 @@ impl Scope {
                     .is_none()
                 {
                     let var = Expr::Variable(Variable { id });
-                    let expr = pool.add(var, span);
+                    let expr = ExprPtr::new(var, span);
                     self.insert(id, expr, Types::Variable);
                 }
             }

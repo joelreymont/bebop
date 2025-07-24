@@ -1,9 +1,11 @@
+use crate::env::*;
 use crate::error::LiftError;
-use crate::{env::*, pool::*};
 use bebop_parser::ast;
 use bebop_util::meta::*;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
+use std::cell::RefCell;
 use std::option::Option::*;
+use std::rc::Rc;
 
 pub type Ident = ast::Ident;
 pub type Endian = ast::Endian;
@@ -74,23 +76,71 @@ pub enum Hint {
     Float,
 }
 
-pub type LiftResult = Result<ExprId, LiftError>;
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExprPtr {
+    expr: Rc<RefCell<Expr>>,
+    span: Span,
+}
+
+impl ExprPtr {
+    pub fn new(expr: Expr, span: Span) -> Self {
+        Self {
+            expr: Rc::new(RefCell::new(expr)),
+            span,
+        }
+    }
+
+    pub fn with_span(&self, span: Span) -> Self {
+        Self {
+            expr: self.expr.clone(),
+            span,
+        }
+    }
+
+    pub fn modify(
+        &mut self,
+        mut fun: impl FnMut(&mut Expr) -> Result<(), LiftError>,
+    ) -> Result<(), LiftError> {
+        fun(&mut self.expr.borrow_mut())
+    }
+}
+
+impl Spanned for ExprPtr {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+impl Serialize for ExprPtr {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.expr.serialize(serializer)
+        // let mut expr = serializer.serialize_struct("ExprPtr", 2)?;
+        // expr.serialize_field("expr", &self.expr)?;
+        // expr.serialize_field("span", &self.span)?;
+        // expr.end()
+    }
+}
+
+pub type LiftResult = Result<ExprPtr, LiftError>;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Expr {
     Binary {
         op: BinaryOp,
-        lhs: ExprId,
-        rhs: ExprId,
+        lhs: ExprPtr,
+        rhs: ExprPtr,
     },
     Unary {
         op: UnaryOp,
-        rhs: ExprId,
+        rhs: ExprPtr,
     },
-    Paren(ExprId),
+    Paren(ExprPtr),
     Pointer {
-        expr: ExprId,
-        region: Option<ExprId>,
+        expr: ExprPtr,
+        region: Option<ExprPtr>,
     },
     TakeBits {
         id: Id,
@@ -98,12 +148,12 @@ pub enum Expr {
         bit_width: usize,
     },
     TakeBytes {
-        expr: ExprId,
+        expr: ExprPtr,
         n: usize,
     },
     FunCall {
-        intrinsic: ExprId,
-        args: Vec<ExprId>,
+        intrinsic: ExprPtr,
+        args: Vec<ExprPtr>,
     },
     Register(Register),
     RegisterIndex(RegisterIndex),
@@ -114,20 +164,20 @@ pub enum Expr {
     Unit(Loc<()>),
     // Statements
     Bind {
-        lhs: ExprId,
-        rhs: ExprId,
+        lhs: ExprPtr,
+        rhs: ExprPtr,
     },
     MacroCall {
-        r#macro: ExprId,
-        args: Vec<ExprId>,
+        r#macro: ExprPtr,
+        args: Vec<ExprPtr>,
     },
     Transfer(Transfer),
     Branch {
-        condition: ExprId,
+        condition: ExprPtr,
         target: JumpTarget,
     },
-    Export(ExprId),
-    Build(ExprId),
+    Export(ExprPtr),
+    Build(ExprPtr),
     Label(Id),
     // Invalid expressions, for pooling only!
     MemoryRegion(MemoryRegion),
@@ -170,47 +220,43 @@ impl Spanned for Expr {
 }
 
 impl Expr {
-    pub fn lift(
-        pool: &mut ExprPool,
-        scope: &Scope,
-        expr: &ast::Expr,
-    ) -> LiftResult {
+    pub fn lift(scope: &Scope, expr: &ast::Expr) -> LiftResult {
         use ast::Expr::*;
         match expr {
             Binary { op, lhs, rhs } => {
                 let span = lhs.span();
-                let lhs = Self::lift(pool, scope, lhs)?;
-                let rhs = Self::lift(pool, scope, rhs)?;
+                let lhs = Self::lift(scope, lhs)?;
+                let rhs = Self::lift(scope, rhs)?;
                 let op = BinaryOp::try_from(op)?;
                 let expr = Expr::Binary { op, lhs, rhs };
-                Ok(pool.add(expr, span))
+                Ok(ExprPtr::new(expr, span))
             }
             Unary { op, rhs } => {
                 let span = rhs.span();
-                let rhs = Self::lift(pool, scope, rhs)?;
+                let rhs = Self::lift(scope, rhs)?;
                 let op = UnaryOp::try_from(op)?;
                 let expr = Expr::Unary { op, rhs };
-                Ok(pool.add(expr, span))
+                Ok(ExprPtr::new(expr, span))
             }
             Paren(expr) => {
                 let span = expr.span();
-                let id = Self::lift(pool, scope, expr)?;
+                let id = Self::lift(scope, expr)?;
                 let expr = Expr::Paren(id);
-                Ok(pool.add(expr, span))
+                Ok(ExprPtr::new(expr, span))
             }
             FunCall { id, args } => {
                 let id: self::Id = id.into();
                 let span = id.span();
                 let intrinsic = scope.lookup(&id, Types::Intrinsic)?;
-                let args: Result<Vec<ExprId>, _> = args
+                let args: Result<Vec<ExprPtr>, _> = args
                     .iter()
-                    .map(|arg| Self::lift(pool, scope, arg))
+                    .map(|arg| Self::lift(scope, arg))
                     .collect();
                 let expr = Expr::FunCall {
                     intrinsic,
                     args: args?,
                 };
-                Ok(pool.add(expr, span))
+                Ok(ExprPtr::new(expr, span))
             }
             BitRange {
                 id,
@@ -223,20 +269,20 @@ impl Expr {
                     start_bit: start_bit.into_value(),
                     bit_width: bit_width.into_value(),
                 };
-                Ok(pool.add(expr, span))
+                Ok(ExprPtr::new(expr, span))
             }
             Sized { expr, size } => {
                 let span = expr.span();
-                let id = Self::lift(pool, scope, expr)?;
+                let id = Self::lift(scope, expr)?;
                 let expr = Expr::TakeBytes {
                     expr: id,
                     n: size.into_value(),
                 };
-                Ok(pool.add(expr, span))
+                Ok(ExprPtr::new(expr, span))
             }
             Pointer { expr, space } => {
                 let span = expr.span();
-                let expr = Self::lift(pool, scope, expr)?;
+                let expr = Self::lift(scope, expr)?;
                 let region = space
                     .map(|id| {
                         let id: self::Id = id.into();
@@ -244,25 +290,24 @@ impl Expr {
                     })
                     .transpose()?;
                 let expr = Expr::Pointer { expr, region };
-                Ok(pool.add(expr, span))
+                Ok(ExprPtr::new(expr, span))
             }
             Id(id) => {
                 let id: self::Id = id.into();
                 let span = id.span();
-                let expr = scope.lookup(&id, Types::all())?;
+                let expr = scope.find(&id, Types::all())?;
                 Ok(expr.with_span(span))
             }
             Int(n) => {
                 let span = n.span();
                 let expr = Expr::Int(*n);
-                Ok(pool.add(expr, span))
+                Ok(ExprPtr::new(expr, span))
             }
-            Unit(x) => Ok(pool.add(Expr::Unit(*x), x.span())),
+            Unit(x) => Ok(ExprPtr::new(Expr::Unit(*x), x.span())),
         }
     }
 
     pub fn lift_stmt(
-        pool: &mut ExprPool,
         scope: &mut Scope,
         stmt: ast::Statement,
     ) -> LiftResult {
@@ -270,73 +315,73 @@ impl Expr {
         match stmt {
             Bind { lhs, rhs } => {
                 let span = lhs.span();
-                scope.add_local_vars(pool, &lhs, None)?;
-                let lhs = Self::lift(pool, scope, &lhs)?;
-                let rhs = Self::lift(pool, scope, &rhs)?;
+                scope.add_local_vars(&lhs, None)?;
+                let lhs = Self::lift(scope, &lhs)?;
+                let rhs = Self::lift(scope, &rhs)?;
                 let expr = Expr::Bind { lhs, rhs };
-                Ok(pool.add(expr, span))
+                Ok(ExprPtr::new(expr, span))
             }
             FunCall { id, args } => {
                 let id: self::Id = id.into();
                 let span = id.span();
                 let intrinsic = scope.lookup(&id, Types::Intrinsic)?;
-                let args: Result<Vec<ExprId>, _> = args
+                let args: Result<Vec<ExprPtr>, _> = args
                     .into_iter()
-                    .map(|arg| Self::lift(pool, scope, &arg))
+                    .map(|arg| Self::lift(scope, &arg))
                     .collect();
                 let expr = Expr::FunCall {
                     intrinsic,
                     args: args?,
                 };
-                Ok(pool.add(expr, span))
+                Ok(ExprPtr::new(expr, span))
             }
             Goto(target) => {
                 let span = target.span();
-                let target = JumpTarget::lift(pool, scope, target)?;
+                let target = JumpTarget::lift(scope, target)?;
                 let xfer = Transfer {
                     kind: TransferKind::Goto,
                     target,
                 };
                 let expr = Expr::Transfer(xfer);
-                Ok(pool.add(expr, span))
+                Ok(ExprPtr::new(expr, span))
             }
             Call(target) => {
                 let span = target.span();
-                let target = JumpTarget::lift(pool, scope, target)?;
+                let target = JumpTarget::lift(scope, target)?;
                 let xfer = Transfer {
                     kind: TransferKind::Call,
                     target,
                 };
                 let expr = Expr::Transfer(xfer);
-                Ok(pool.add(expr, span))
+                Ok(ExprPtr::new(expr, span))
             }
             Return(target) => {
                 let span = target.span();
-                let target = JumpTarget::lift(pool, scope, target)?;
+                let target = JumpTarget::lift(scope, target)?;
                 let xfer = Transfer {
                     kind: TransferKind::Return,
                     target,
                 };
                 let expr = Expr::Transfer(xfer);
-                Ok(pool.add(expr, span))
+                Ok(ExprPtr::new(expr, span))
             }
             Branch { condition, target } => {
                 let span = condition.span();
-                let condition = Expr::lift(pool, scope, &condition)?;
-                let target = JumpTarget::lift(pool, scope, target)?;
+                let condition = Expr::lift(scope, &condition)?;
+                let target = JumpTarget::lift(scope, target)?;
                 let expr = Expr::Branch { condition, target };
-                Ok(pool.add(expr, span))
+                Ok(ExprPtr::new(expr, span))
             }
             Export(expr) => {
                 let span = expr.span();
-                let expr = Expr::lift(pool, scope, &expr)?;
+                let expr = Expr::lift(scope, &expr)?;
                 let expr = Expr::Export(expr);
-                Ok(pool.add(expr, span))
+                Ok(ExprPtr::new(expr, span))
             }
             Label(id) => {
                 let span = id.span();
                 let expr = Expr::Label(id.into());
-                Ok(pool.add(expr, span))
+                Ok(ExprPtr::new(expr, span))
             }
             Build(id) => {
                 let id: self::Id = id.into();
@@ -344,9 +389,16 @@ impl Expr {
                 let scanner = scope.lookup(&id, Types::Scanner)?;
                 let scanner = scanner.with_span(span);
                 let expr = Expr::Build(scanner);
-                Ok(pool.add(expr, span))
+                Ok(ExprPtr::new(expr, span))
             }
         }
+    }
+
+    pub fn macroexpand(
+        _i: usize,
+        _id: ExprPtr,
+    ) -> Result<(usize, Vec<ExprPtr>), LiftError> {
+        Ok((0, Vec::new()))
     }
 }
 
@@ -464,7 +516,7 @@ pub struct Register {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RegisterMap {
-    pub registers: Vec<Option<ExprId>>,
+    pub registers: Vec<Option<ExprPtr>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -492,7 +544,7 @@ impl From<ast::Field> for BitField {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RegisterIndex {
-    pub bit_field: ExprId,
+    pub bit_field: ExprPtr,
     pub register_map_idx: usize,
 }
 
@@ -509,14 +561,13 @@ pub struct Intrinsic {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum JumpTarget {
     Fixed(Address),
-    Direct(ExprId),
-    Indirect(ExprId),
+    Direct(ExprPtr),
+    Indirect(ExprPtr),
     Label(Loc<Ident>),
 }
 
 impl JumpTarget {
     pub fn lift(
-        pool: &mut ExprPool,
         scope: &Scope,
         target: ast::JumpTarget,
     ) -> Result<Self, LiftError> {
@@ -534,11 +585,11 @@ impl JumpTarget {
             }
             Direct(id) => {
                 let id: self::Id = id.into();
-                let expr = scope.lookup(&id, Types::all())?;
+                let expr = scope.find(&id, Types::all())?;
                 JumpTarget::Direct(expr)
             }
             Indirect(expr) => {
-                let expr = Expr::lift(pool, scope, &expr)?;
+                let expr = Expr::lift(scope, &expr)?;
                 JumpTarget::Indirect(expr)
             }
             Label(id) => JumpTarget::Label(id), // TODO: Validate in this env!
@@ -562,7 +613,7 @@ impl Spanned for JumpTarget {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Address {
     pub address: Loc<usize>,
-    pub region: Option<ExprId>,
+    pub region: Option<ExprPtr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -588,42 +639,53 @@ pub enum TransferKind {
 pub struct Macro {
     pub id: Id,
     pub args: Vec<Id>,
-    pub body: Vec<ExprId>,
+    pub body: Vec<ExprPtr>,
     pub scope: Scope,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Scanner {
     pub id: Id,
-    pub rules: Vec<ExprId>,
+    pub rules: Vec<ExprPtr>,
     pub is_instruction: bool,
 }
 
-type Pattern = Vec<ExprId>;
+impl Scanner {
+    pub fn macroexpand(&mut self) -> Result<(), LiftError> {
+        for expr in self.rules.iter_mut() {
+            expr.modify(|expr| match expr {
+                Expr::Rule(rule) => Ok(rule.macroexpand()?),
+                _ => Err(LiftError::InternalTypeMismatch(expr.span())),
+            })?;
+        }
+        Ok(())
+    }
+}
+
+type Pattern = Vec<ExprPtr>;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Rule {
     pub id: Id,
     pub mnemonic: Vec<Output>,
     pub output: Vec<Output>,
-    pub setup: Vec<ExprId>,
-    pub actions: Vec<ExprId>,
+    pub setup: Vec<ExprPtr>,
+    pub actions: Vec<ExprPtr>,
     pub pattern: Pattern,
     pub scope: Scope,
 }
 
 impl Rule {
     pub fn lift(
-        pool: &mut ExprPool,
         mut scope: Scope,
         ctr: ast::Constructor,
     ) -> Result<Self, LiftError> {
-        let setup: Result<Vec<ExprId>, LiftError> = ctr
+        let setup: Result<Vec<ExprPtr>, LiftError> = ctr
             .context
             .into_iter()
-            .map(|stmt| Expr::lift_stmt(pool, &mut scope, stmt))
+            .map(|stmt| Expr::lift_stmt(&mut scope, stmt))
             .collect();
-        let pattern = Self::lift_pattern(pool, &scope, ctr.pattern)?;
+        let pattern = Self::lift_pattern(&scope, ctr.pattern)?;
         let mnemonic: Vec<Output> = ctr
             .display
             .mnemonic
@@ -642,10 +704,10 @@ impl Rule {
             .into_iter()
             .flatten()
             .collect();
-        let actions: Result<Vec<ExprId>, LiftError> = ctr
+        let actions: Result<Vec<ExprPtr>, LiftError> = ctr
             .body
             .into_iter()
-            .map(|stmt| Expr::lift_stmt(pool, &mut scope, stmt))
+            .map(|stmt| Expr::lift_stmt(&mut scope, stmt))
             .collect();
         let rule = Self {
             id: ctr.id.into(),
@@ -660,7 +722,6 @@ impl Rule {
     }
 
     fn lift_pat_expr(
-        pool: &mut ExprPool,
         scope: &Scope,
         acc: &mut Pattern,
         expr: ast::Expr,
@@ -670,13 +731,13 @@ impl Rule {
             Binary { op, lhs, rhs }
                 if op.value() == &ast::BinaryOp::JOIN =>
             {
-                let lhs = Expr::lift(pool, scope, &lhs)?;
-                let rhs = Expr::lift(pool, scope, &rhs)?;
+                let lhs = Expr::lift(scope, &lhs)?;
+                let rhs = Expr::lift(scope, &rhs)?;
                 acc.push(lhs);
                 acc.push(rhs);
             }
             expr => {
-                let expr = Expr::lift(pool, scope, &expr)?;
+                let expr = Expr::lift(scope, &expr)?;
                 acc.push(expr);
             }
         }
@@ -684,23 +745,44 @@ impl Rule {
     }
 
     fn lift_pattern(
-        pool: &mut ExprPool,
         scope: &Scope,
         expr: Option<ast::Expr>,
     ) -> Result<Pattern, LiftError> {
         let mut pattern = Vec::new();
-        expr.map(|expr| {
-            Self::lift_pat_expr(pool, scope, &mut pattern, expr)
-        })
-        .transpose()?;
+        expr.map(|expr| Self::lift_pat_expr(scope, &mut pattern, expr))
+            .transpose()?;
         Ok(pattern)
+    }
+
+    pub fn macroexpand(&mut self) -> Result<(), LiftError> {
+        // Look for macro calls
+        // Merge macro scope into the local one
+        // For each macro argument
+        //    Bind arg id to arg value
+        //    Prepend to a copy of macro statements
+        // Insert augmented macro statements at the point of the macro call
+        /*
+        pub struct Macro {
+            pub id: Id,
+            pub args: Vec<Id>,
+            pub body: Vec<ExprPtr>,
+            pub scope: Scope,
+        }
+        */
+        // self.actions.iter().enumerate().for_each(
+        //     |(i, id)| match &mut pool[id] {
+        //         Expr::Rule(rule) => rule.macroexpand(pool),
+        //         _ => Err(LiftError::InternalTypeMismatch(id.span())),
+        //     },
+        // );
+        Ok(())
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Output {
     Text(Ident),
-    Expr(ExprId),
+    Expr(ExprPtr),
 }
 
 impl Output {
@@ -714,7 +796,7 @@ impl Output {
             Caret | Space => None,
             Id(id) => {
                 let id = id.into();
-                let expr = scope.lookup(&id, Types::all())?;
+                let expr = scope.find(&id, Types::all())?;
                 Some(Output::Expr(expr))
             }
         };
@@ -727,9 +809,8 @@ pub struct Architecture {
     pub endian: Endian,
     pub alignment: usize,
     pub scope: Scope,
-    pub default_region: Option<ExprId>,
+    pub default_region: Option<ExprPtr>,
     pub register_maps: Vec<RegisterMap>,
-    pub pool: ExprPool,
 }
 
 impl Architecture {
@@ -787,7 +868,7 @@ impl Architecture {
             word_size: space.word_size.into_value(),
             is_default: space.is_default,
         };
-        let expr = self.pool.add(Expr::MemoryRegion(region), span);
+        let expr = ExprPtr::new(Expr::MemoryRegion(region), span);
         self.scope.insert(id, expr, Types::MemoryRegion);
         Ok(())
     }
@@ -802,7 +883,7 @@ impl Architecture {
             field.bit_width = bit_width.into_value();
             let id = field.id;
             let span = field.id.span();
-            let expr = self.pool.add(Expr::BitField(field), span);
+            let expr = ExprPtr::new(Expr::BitField(field), span);
             self.scope.insert(id, expr, Types::BitField);
         }
         Ok(())
@@ -820,7 +901,7 @@ impl Architecture {
                 id,
                 size: varnode.byte_size.into_value(),
             };
-            let expr = self.pool.add(Expr::Register(register), span);
+            let expr = ExprPtr::new(Expr::Register(register), span);
             self.scope.insert(id, expr, Types::Register);
         }
         Ok(())
@@ -855,7 +936,7 @@ impl Architecture {
                 register_map_idx,
                 bit_field,
             };
-            let expr = self.pool.add(Expr::RegisterIndex(index), span);
+            let expr = ExprPtr::new(Expr::RegisterIndex(index), span);
             self.scope.insert(id, expr, Types::RegisterIndex);
         }
         Ok(())
@@ -865,7 +946,7 @@ impl Architecture {
         let id: Id = id.into();
         let span = id.span();
         let op = Intrinsic { id };
-        let expr = self.pool.add(Expr::Intrinsic(op), span);
+        let expr = ExprPtr::new(Expr::Intrinsic(op), span);
         self.scope.insert(id, expr, Types::Intrinsic);
         Ok(())
     }
@@ -876,10 +957,10 @@ impl Architecture {
     ) -> Result<(), LiftError> {
         let mut scope = self.scope.to_local();
         let args = r#macro.args.into_iter().map(|id| id.into()).collect();
-        let body: Result<Vec<ExprId>, _> = r#macro
+        let body: Result<Vec<ExprPtr>, _> = r#macro
             .body
             .into_iter()
-            .map(|stmt| Expr::lift_stmt(&mut self.pool, &mut scope, stmt))
+            .map(|stmt| Expr::lift_stmt(&mut scope, stmt))
             .collect();
         let id: Id = r#macro.id.into();
         let span = id.span();
@@ -889,7 +970,7 @@ impl Architecture {
             body: body?,
             scope,
         };
-        let expr = self.pool.add(Expr::Macro(r#macro), span);
+        let expr = ExprPtr::new(Expr::Macro(r#macro), span);
         self.scope.insert(id, expr, Types::Macro);
         Ok(())
     }
@@ -902,7 +983,7 @@ impl Architecture {
         let span = id.span();
         let is_instruction = ctr.is_instruction;
         let result = self.scope.lookup(&id, Types::Scanner).ok();
-        let (scanner, existing) = match (is_instruction, result) {
+        let (mut scanner, existing) = match (is_instruction, result) {
             (false, Some(scanner)) => (scanner, true),
             _ => {
                 let scanner = Scanner {
@@ -910,22 +991,39 @@ impl Architecture {
                     is_instruction,
                     rules: Vec::new(),
                 };
-                let scanner = self.pool.add(Expr::Scanner(scanner), span);
+                let scanner = ExprPtr::new(Expr::Scanner(scanner), span);
                 (scanner, false)
             }
         };
         {
-            let rule =
-                Rule::lift(&mut self.pool, self.scope.to_local(), ctr)?;
-            let rule = self.pool.add(Expr::Rule(rule), span);
-            if let Expr::Scanner(scanner) = &mut self.pool[&scanner] {
-                scanner.rules.push(rule);
-            } else {
-                return Err(LiftError::InternalTypeMismatch(span));
-            }
+            let rule = Rule::lift(self.scope.to_local(), ctr)?;
+            let rule = ExprPtr::new(Expr::Rule(rule), span);
+            scanner.modify(|expr| {
+                if let Expr::Scanner(scanner) = expr {
+                    scanner.rules.push(rule.clone());
+                    Ok(())
+                } else {
+                    Err(LiftError::InternalTypeMismatch(span))
+                }
+            })?;
         }
         if !existing {
             self.scope.insert(id, scanner, Types::Scanner);
+        }
+        Ok(())
+    }
+
+    pub fn macroexpand(&mut self) -> Result<(), LiftError> {
+        let iter = self
+            .scope
+            .iter_mut()
+            .filter(|((_, types), _)| *types == Types::Scanner)
+            .map(|(_, expr)| expr);
+        for expr in iter {
+            expr.modify(|expr| match expr {
+                Expr::Scanner(scanner) => Ok(scanner.macroexpand()?),
+                _ => Err(LiftError::InternalTypeMismatch(expr.span())),
+            })?;
         }
         Ok(())
     }
@@ -939,7 +1037,6 @@ impl Default for Architecture {
             scope: Scope::default(),
             default_region: None,
             register_maps: Vec::new(),
-            pool: ExprPool::new(),
         };
         // const space
         let region_id = Id::new(Ident::new("const"));
@@ -951,12 +1048,12 @@ impl Default for Architecture {
             is_default: false,
         };
         let span = Span::default();
-        let expr = arch.pool.add(Expr::MemoryRegion(region), span);
+        let expr = ExprPtr::new(Expr::MemoryRegion(region), span);
         arch.scope.insert(region_id, expr, Types::MemoryRegion);
         INTRINSICS.iter().for_each(|name| {
             let id = Id::new(Ident::new(name));
             let intrinsic = Intrinsic { id };
-            let expr = arch.pool.add(Expr::Intrinsic(intrinsic), span);
+            let expr = ExprPtr::new(Expr::Intrinsic(intrinsic), span);
             arch.scope.insert(id, expr, Types::Intrinsic);
         });
         arch
