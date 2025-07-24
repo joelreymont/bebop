@@ -1,4 +1,4 @@
-use crate::hir::*;
+use crate::{hir::*, pool::*};
 use bebop_parser::error::*;
 use bebop_util::meta::*;
 use std::fmt;
