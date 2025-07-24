@@ -52,7 +52,7 @@ impl TypeEnv {
         self.env
             .entry(*id.ident())
             .and_modify(|values| _ = values.insert((types, expr_id)))
-            .or_default();
+            .or_insert(OrderSet::from([(types, expr_id)]));
     }
 
     pub fn get(&self, id: &Id, types: Types) -> Option<ExprId> {
