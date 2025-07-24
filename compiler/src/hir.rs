@@ -2,10 +2,10 @@ use crate::error::LiftError;
 use bebop_parser::ast;
 use bebop_util::meta::*;
 use bitflags::bitflags;
+use core::hash::{Hash, Hasher};
 use core::ops;
 use ordermap::{OrderMap, OrderSet};
 use serde::{Serialize, Serializer};
-use std::hash::Hash;
 use std::option::Option::*;
 
 pub type Ident = ast::Ident;
@@ -21,6 +21,10 @@ impl Id {
 
     pub fn ident(&self) -> &Ident {
         self.0.value()
+    }
+
+    pub fn span(&self) -> Span {
+        self.0.tag().span()
     }
 }
 
@@ -87,8 +91,36 @@ bitflags! {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct ExprId(id_arena::Id<Expr>);
+#[derive(Copy, Clone, Debug)]
+pub struct ExprId(Loc<id_arena::Id<Expr>>);
+
+impl ExprId {
+    pub fn with_span(&self, span: Span) -> Self {
+        Self(self.0.map_tag(|_| span))
+    }
+}
+
+impl Hash for ExprId {
+    #[inline]
+    fn hash<H: Hasher>(&self, h: &mut H) {
+        self.0.value().hash(h);
+    }
+}
+
+impl PartialEq for ExprId {
+    #[inline]
+    fn eq(&self, rhs: &Self) -> bool {
+        self.0.value() == rhs.0.value()
+    }
+}
+
+impl Eq for ExprId {}
+
+impl Spanned for ExprId {
+    fn span(&self) -> Span {
+        *self.0.tag()
+    }
+}
 
 type LiftResult = Result<ExprId, LiftError>;
 
@@ -111,38 +143,8 @@ impl ExprPool {
     }
 
     #[inline]
-    pub fn add(&mut self, expr: Expr) -> ExprId {
-        ExprId(self.arena.alloc(expr))
-    }
-
-    fn span(&self, id: &ExprId) -> Span {
-        use Expr::*;
-        match &self[id] {
-            Binary { lhs, .. } => self.span(lhs),
-            Unary { rhs, .. } => self.span(rhs),
-            Paren(expr) => self.span(expr),
-            Pointer { expr, .. } => self.span(expr),
-            TakeBits { id, .. } => id.span(),
-            TakeBytes { expr, .. } => self.span(expr),
-            FunCall { intrinsic, .. } => self.span(intrinsic),
-            Register(reg) => reg.id.span(),
-            RegisterIndex(index) => self.span(&index.bit_field),
-            BitField(field) => field.id.span(),
-            Scanner(scanner) => scanner.id.span(),
-            Variable(var) => var.id.span(),
-            Int(_) | Unit => Span::default(),
-            Bind { lhs, .. } => self.span(lhs),
-            MacroCall { m, .. } => self.span(m),
-            Transfer(xfer) => xfer.span(self),
-            Branch { condition, .. } => self.span(condition),
-            Export(expr) => self.span(expr),
-            Build(expr) => self.span(expr),
-            Label(id) => id.span(),
-            MemoryRegion(region) => region.id.span(),
-            Intrinsic(intrinsic) => intrinsic.id.span(),
-            Macro(m) => m.id.span(),
-            Rule(rule) => rule.id.span(),
-        }
+    pub fn add(&mut self, expr: Expr, span: Span) -> ExprId {
+        ExprId(Loc::new(self.arena.alloc(expr), span))
     }
 }
 
@@ -151,14 +153,14 @@ impl ops::Index<&ExprId> for ExprPool {
 
     #[inline]
     fn index(&self, id: &ExprId) -> &Expr {
-        &self.arena[id.0]
+        &self.arena[id.0.into_value()]
     }
 }
 
 impl ops::IndexMut<&ExprId> for ExprPool {
     #[inline]
     fn index_mut(&mut self, id: &ExprId) -> &mut Expr {
-        &mut self.arena[id.0]
+        &mut self.arena[id.0.into_value()]
     }
 }
 
@@ -270,15 +272,15 @@ pub enum Expr {
     BitField(BitField),
     Scanner(Scanner),
     Variable(Variable),
-    Int(usize),
-    Unit,
+    Int(Loc<usize>),
+    Unit(Loc<()>),
     // Statements
     Bind {
         lhs: ExprId,
         rhs: ExprId,
     },
     MacroCall {
-        m: ExprId,
+        r#macro: ExprId,
         args: Vec<ExprId>,
     },
     Transfer(Transfer),
@@ -296,6 +298,39 @@ pub enum Expr {
     Rule(Rule),
 }
 
+impl Spanned for Expr {
+    fn span(&self) -> Span {
+        use Expr::*;
+        match self {
+            Binary { lhs, .. } => lhs.span(),
+            Unary { rhs, .. } => rhs.span(),
+            Paren(expr) => expr.span(),
+            Pointer { expr, .. } => expr.span(),
+            TakeBits { id, .. } => id.span(),
+            TakeBytes { expr, .. } => expr.span(),
+            FunCall { intrinsic, .. } => intrinsic.span(),
+            Register(reg) => reg.id.span(),
+            RegisterIndex(index) => index.bit_field.span(),
+            BitField(field) => field.id.span(),
+            Scanner(scanner) => scanner.id.span(),
+            Variable(var) => var.id.span(),
+            Int(loc) => *loc.tag(),
+            Unit(loc) => *loc.tag(),
+            Bind { lhs, .. } => lhs.span(),
+            MacroCall { r#macro, .. } => r#macro.span(),
+            Transfer(xfer) => xfer.span(),
+            Branch { condition, .. } => condition.span(),
+            Export(expr) => expr.span(),
+            Build(expr) => expr.span(),
+            Label(id) => id.span(),
+            MemoryRegion(region) => region.id.span(),
+            Intrinsic(intrinsic) => intrinsic.id.span(),
+            Macro(r#macro) => r#macro.id.span(),
+            Rule(rule) => rule.id.span(),
+        }
+    }
+}
+
 impl Expr {
     pub fn lift(
         pool: &mut ExprPool,
@@ -305,24 +340,28 @@ impl Expr {
         use ast::Expr::*;
         match expr {
             Binary { op, lhs, rhs } => {
+                let span = lhs.span();
                 let lhs = Self::lift(pool, scope, lhs)?;
                 let rhs = Self::lift(pool, scope, rhs)?;
                 let op = BinaryOp::try_from(op)?;
                 let expr = Expr::Binary { op, lhs, rhs };
-                Ok(pool.add(expr))
+                Ok(pool.add(expr, span))
             }
             Unary { op, rhs } => {
+                let span = rhs.span();
                 let rhs = Self::lift(pool, scope, rhs)?;
                 let op = UnaryOp::try_from(op)?;
                 let expr = Expr::Unary { op, rhs };
-                Ok(pool.add(expr))
+                Ok(pool.add(expr, span))
             }
             Paren(expr) => {
+                let span = expr.span();
                 let id = Self::lift(pool, scope, expr)?;
                 let expr = Expr::Paren(id);
-                Ok(pool.add(expr))
+                Ok(pool.add(expr, span))
             }
             FunCall { id, args } => {
+                let span = id.span();
                 let intrinsic = scope.lookup(id, Types::Intrinsic)?;
                 let args: Result<Vec<ExprId>, _> = args
                     .iter()
@@ -332,42 +371,50 @@ impl Expr {
                     intrinsic,
                     args: args?,
                 };
-                Ok(pool.add(expr))
+                Ok(pool.add(expr, span))
             }
             BitRange {
                 id,
                 start_bit,
                 bit_width,
             } => {
+                let span = id.span();
                 let expr = Expr::TakeBits {
                     id: id.into(),
                     start_bit: start_bit.into_value(),
                     bit_width: bit_width.into_value(),
                 };
-                Ok(pool.add(expr))
+                Ok(pool.add(expr, span))
             }
             Sized { expr, size } => {
+                let span = expr.span();
                 let id = Self::lift(pool, scope, expr)?;
                 let expr = Expr::TakeBytes {
                     expr: id,
                     n: size.into_value(),
                 };
-                Ok(pool.add(expr))
+                Ok(pool.add(expr, span))
             }
             Pointer { expr, space } => {
+                let span = expr.span();
                 let expr = Self::lift(pool, scope, expr)?;
                 let region = space
                     .map(|id| scope.lookup(&id, Types::MemoryRegion))
                     .transpose()?;
                 let expr = Expr::Pointer { expr, region };
-                Ok(pool.add(expr))
+                Ok(pool.add(expr, span))
             }
-            Id(id) => scope.lookup(id, Types::all()),
+            Id(id) => {
+                let span = id.span();
+                let expr = scope.lookup(id, Types::all())?;
+                Ok(expr.with_span(span))
+            }
             Int(n) => {
-                let expr = Expr::Int(n.into_value());
-                Ok(pool.add(expr))
+                let span = n.span();
+                let expr = Expr::Int(*n);
+                Ok(pool.add(expr, span))
             }
-            Unit(_) => Ok(pool.add(Expr::Unit)),
+            Unit(x) => Ok(pool.add(Expr::Unit(*x), x.span())),
         }
     }
 
@@ -379,13 +426,15 @@ impl Expr {
         use ast::Statement::*;
         match stmt {
             Bind { lhs, rhs } => {
+                let span = lhs.span();
                 scope.add_local_vars(pool, &lhs, None)?;
                 let lhs = Self::lift(pool, scope, &lhs)?;
                 let rhs = Self::lift(pool, scope, &rhs)?;
                 let expr = Expr::Bind { lhs, rhs };
-                Ok(pool.add(expr))
+                Ok(pool.add(expr, span))
             }
             FunCall { id, args } => {
+                let span = id.span();
                 let intrinsic = scope.lookup(&id, Types::Intrinsic)?;
                 let args: Result<Vec<ExprId>, _> = args
                     .into_iter()
@@ -395,54 +444,62 @@ impl Expr {
                     intrinsic,
                     args: args?,
                 };
-                Ok(pool.add(expr))
+                Ok(pool.add(expr, span))
             }
             Goto(target) => {
+                let span = target.span();
                 let target = JumpTarget::lift(pool, scope, target)?;
                 let xfer = Transfer {
                     kind: TransferKind::Goto,
                     target,
                 };
                 let expr = Expr::Transfer(xfer);
-                Ok(pool.add(expr))
+                Ok(pool.add(expr, span))
             }
             Call(target) => {
+                let span = target.span();
                 let target = JumpTarget::lift(pool, scope, target)?;
                 let xfer = Transfer {
                     kind: TransferKind::Call,
                     target,
                 };
                 let expr = Expr::Transfer(xfer);
-                Ok(pool.add(expr))
+                Ok(pool.add(expr, span))
             }
             Return(target) => {
+                let span = target.span();
                 let target = JumpTarget::lift(pool, scope, target)?;
                 let xfer = Transfer {
                     kind: TransferKind::Return,
                     target,
                 };
                 let expr = Expr::Transfer(xfer);
-                Ok(pool.add(expr))
+                Ok(pool.add(expr, span))
             }
             Branch { condition, target } => {
+                let span = condition.span();
                 let condition = Expr::lift(pool, scope, &condition)?;
                 let target = JumpTarget::lift(pool, scope, target)?;
                 let expr = Expr::Branch { condition, target };
-                Ok(pool.add(expr))
+                Ok(pool.add(expr, span))
             }
             Export(expr) => {
+                let span = expr.span();
                 let expr = Expr::lift(pool, scope, &expr)?;
                 let expr = Expr::Export(expr);
-                Ok(pool.add(expr))
+                Ok(pool.add(expr, span))
             }
             Label(id) => {
+                let span = id.span();
                 let expr = Expr::Label(id.into());
-                Ok(pool.add(expr))
+                Ok(pool.add(expr, span))
             }
             Build(id) => {
+                let span = id.span();
                 let scanner = scope.lookup(&id, Types::Scanner)?;
+                let scanner = scanner.with_span(span);
                 let expr = Expr::Build(scanner);
-                Ok(pool.add(expr))
+                Ok(pool.add(expr, span))
             }
         }
     }
@@ -624,10 +681,7 @@ impl JumpTarget {
                 let region = space
                     .map(|id| scope.lookup(&id, Types::MemoryRegion))
                     .transpose()?;
-                let addr = Address {
-                    address: address.into_value(),
-                    region,
-                };
+                let addr = Address { address, region };
                 JumpTarget::Fixed(addr)
             }
             Direct(id) => {
@@ -642,13 +696,15 @@ impl JumpTarget {
         };
         Ok(target)
     }
+}
 
-    pub fn span(&self, pool: &ExprPool) -> Span {
+impl Spanned for JumpTarget {
+    fn span(&self) -> Span {
         use JumpTarget::*;
         match self {
-            Fixed(_) => Span::default(),
-            Direct(expr) => pool.span(expr),
-            Indirect(expr) => pool.span(expr),
+            Fixed(_) => Span::default(), // TODO: Fix this!
+            Direct(expr) => expr.span(),
+            Indirect(expr) => expr.span(),
             Label(id) => id.span(),
         }
     }
@@ -656,7 +712,7 @@ impl JumpTarget {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Address {
-    pub address: usize,
+    pub address: Loc<usize>,
     pub region: Option<ExprId>,
 }
 
@@ -666,9 +722,9 @@ pub struct Transfer {
     pub target: JumpTarget,
 }
 
-impl Transfer {
-    pub fn span(&self, pool: &ExprPool) -> Span {
-        self.target.span(pool)
+impl Spanned for Transfer {
+    fn span(&self) -> Span {
+        self.target.span()
     }
 }
 
@@ -891,17 +947,19 @@ impl Scope {
                 self.add_local_vars(pool, expr, expected_size)?
             }
             Id(id) => {
-                let id_ = id.value();
-                let id = id.into();
+                let id: self::Id = id.into();
+                let ident = *id.ident();
+                let span = id.span();
                 if self
                     .parent_env
                     .as_ref()
-                    .and_then(|env| env.get(id_, Types::Variable))
-                    .or_else(|| self.env.get(id_, Types::Variable))
+                    .and_then(|env| env.get(&ident, Types::Variable))
+                    .or_else(|| self.env.get(&ident, Types::Variable))
                     .is_none()
                 {
-                    let expr = pool.add(Expr::Variable(Variable { id }));
-                    self.insert(*id_, expr, Types::Variable);
+                    let var = Expr::Variable(Variable { id });
+                    let expr = pool.add(var, span);
+                    self.insert(ident, expr, Types::Variable);
                 }
             }
             _ => {}
@@ -968,6 +1026,7 @@ impl Architecture {
     ) -> Result<(), LiftError> {
         let id: Id = space.id.into();
         let ident = *id.ident();
+        let span = id.span();
         let region = MemoryRegion {
             id,
             kind: space.kind,
@@ -975,7 +1034,7 @@ impl Architecture {
             word_size: space.word_size.into_value(),
             is_default: space.is_default,
         };
-        let expr = self.pool.add(Expr::MemoryRegion(region));
+        let expr = self.pool.add(Expr::MemoryRegion(region), span);
         self.scope.insert(ident, expr, Types::MemoryRegion);
         Ok(())
     }
@@ -989,7 +1048,8 @@ impl Architecture {
             let mut field = BitField::from(field);
             field.bit_width = bit_width.into_value();
             let ident = *field.id.ident();
-            let expr = self.pool.add(Expr::BitField(field));
+            let span = field.id.span();
+            let expr = self.pool.add(Expr::BitField(field), span);
             self.scope.insert(ident, expr, Types::BitField);
         }
         Ok(())
@@ -1003,11 +1063,12 @@ impl Architecture {
         for id in varnode.ids {
             let id: Id = id.into();
             let ident = *id.ident();
+            let span = id.span();
             let register = Register {
                 id,
                 size: varnode.byte_size.into_value(),
             };
-            let expr = self.pool.add(Expr::Register(register));
+            let expr = self.pool.add(Expr::Register(register), span);
             self.scope.insert(ident, expr, Types::Register);
         }
         Ok(())
@@ -1034,12 +1095,13 @@ impl Architecture {
         self.register_maps.push(RegisterMap { registers });
         // register indices that refer to the map
         for id in attach.fields {
+            let span = id.span();
             let bit_field = self.scope.lookup(&id, Types::BitField)?;
             let index = RegisterIndex {
                 register_map_idx,
                 bit_field,
             };
-            let expr = self.pool.add(Expr::RegisterIndex(index));
+            let expr = self.pool.add(Expr::RegisterIndex(index), span);
             self.scope
                 .insert(id.into_value(), expr, Types::RegisterIndex);
         }
@@ -1047,9 +1109,12 @@ impl Architecture {
     }
 
     fn lift_pcode_op(&mut self, id: Loc<Ident>) -> Result<(), LiftError> {
-        let op = Intrinsic { id: id.into() };
-        let expr = self.pool.add(Expr::Intrinsic(op));
-        self.scope.insert(id.into_value(), expr, Types::Intrinsic);
+        let id: Id = id.into();
+        let ident = *id.ident();
+        let span = id.span();
+        let op = Intrinsic { id };
+        let expr = self.pool.add(Expr::Intrinsic(op), span);
+        self.scope.insert(ident, expr, Types::Intrinsic);
         Ok(())
     }
 
@@ -1066,13 +1131,14 @@ impl Architecture {
             .collect();
         let id: Id = r#macro.id.into();
         let ident = *id.ident();
+        let span = id.span();
         let r#macro = Macro {
             id,
             args,
             body: body?,
             scope,
         };
-        let expr = self.pool.add(Expr::Macro(r#macro));
+        let expr = self.pool.add(Expr::Macro(r#macro), span);
         self.scope.insert(ident, expr, Types::Macro);
         Ok(())
     }
@@ -1094,14 +1160,14 @@ impl Architecture {
                     is_instruction,
                     rules: Vec::new(),
                 };
-                let scanner = self.pool.add(Expr::Scanner(scanner));
+                let scanner = self.pool.add(Expr::Scanner(scanner), span);
                 (scanner, false)
             }
         };
         {
             let rule =
                 Rule::lift(&mut self.pool, self.scope.to_local(), ctr)?;
-            let rule = self.pool.add(Expr::Rule(rule));
+            let rule = self.pool.add(Expr::Rule(rule), span);
             if let Expr::Scanner(scanner) = &mut self.pool[&scanner] {
                 scanner.rules.push(rule);
             } else {
@@ -1135,13 +1201,14 @@ impl Default for Architecture {
             word_size: 1,
             is_default: false,
         };
-        let expr = arch.pool.add(Expr::MemoryRegion(region));
+        let span = Span::default();
+        let expr = arch.pool.add(Expr::MemoryRegion(region), span);
         arch.scope.insert(region_ident, expr, Types::MemoryRegion);
         INTRINSICS.iter().for_each(|name| {
             let ident = Ident::new(name);
             let id = Id::new(ident);
             let intrinsic = Intrinsic { id };
-            let expr = arch.pool.add(Expr::Intrinsic(intrinsic));
+            let expr = arch.pool.add(Expr::Intrinsic(intrinsic), span);
             arch.scope.insert(ident, expr, Types::Intrinsic);
         });
         arch

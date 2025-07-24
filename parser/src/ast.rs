@@ -395,8 +395,8 @@ pub enum Expr {
     Unit(Loc<()>),
 }
 
-impl Expr {
-    pub fn span(&self) -> Span {
+impl Spanned for Expr {
+    fn span(&self) -> Span {
         use Expr::*;
         match self {
             Binary { lhs, .. } => lhs.span(),
@@ -435,6 +435,18 @@ pub enum JumpTarget {
     Direct(Loc<Ident>),
     Indirect(Expr),
     Label(Loc<Ident>),
+}
+
+impl Spanned for JumpTarget {
+    fn span(&self) -> Span {
+        use JumpTarget::*;
+        match self {
+            Fixed { address, .. } => address.span(),
+            Direct(id) => id.span(),
+            Indirect(expr) => expr.span(),
+            Label(id) => id.span(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
