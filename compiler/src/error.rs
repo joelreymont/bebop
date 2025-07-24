@@ -10,7 +10,7 @@ pub enum TypeEnvError {
 
 #[derive(Clone)]
 pub enum LiftError {
-    Unknown(Span),
+    Unknown(Id),
     Invalid(Span),
     Duplicate(Span),
     TypeMismatch(Span),
@@ -22,7 +22,7 @@ pub enum LiftError {
 impl fmt::Debug for LiftError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::Unknown(span) => write!(f, "Unknown {span:?}"),
+            Self::Unknown(id) => write!(f, "Unknown {id:?}"),
             Self::Invalid(span) => write!(f, "Invalid {span:?}"),
             Self::Duplicate(span) => write!(f, "Duplicate {span:?}"),
             Self::TypeMismatch(span) => {
@@ -45,7 +45,7 @@ impl fmt::Debug for LiftError {
 impl Spanned for LiftError {
     fn span(&self) -> Span {
         match self {
-            Self::Unknown(span) => *span,
+            Self::Unknown(id) => id.span(),
             Self::Invalid(span) => *span,
             Self::Duplicate(span) => *span,
             Self::TypeMismatch(span) => *span,

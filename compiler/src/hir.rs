@@ -11,7 +11,7 @@ use std::option::Option::*;
 pub type Ident = ast::Ident;
 pub type Endian = ast::Endian;
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
 pub struct Id(Tagged<Ident, Meta>);
 
 impl Id {
@@ -47,7 +47,7 @@ impl Spanned for Id {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Serialize)]
 pub struct Meta {
     pub size: Option<usize>,
     pub hint: Option<Hint>,
@@ -70,7 +70,7 @@ impl Spanned for Meta {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
 pub enum Hint {
     Unsigned,
     Signed,
@@ -213,15 +213,15 @@ impl TypeEnv {
         Self::default()
     }
 
-    pub fn insert(&mut self, id: Ident, expr_id: ExprId, types: Types) {
+    pub fn insert(&mut self, id: Id, expr_id: ExprId, types: Types) {
         self.env
-            .entry(id)
+            .entry(*id.ident())
             .and_modify(|values| _ = values.insert((types, expr_id)))
             .or_default();
     }
 
-    pub fn get(&self, id: &Ident, types: Types) -> Option<ExprId> {
-        self.env.get(id).and_then(|values| {
+    pub fn get(&self, id: &Id, types: Types) -> Option<ExprId> {
+        self.env.get(id.ident()).and_then(|values| {
             values
                 .iter()
                 .find(|(value_types, _)| value_types.intersects(types))
@@ -361,8 +361,9 @@ impl Expr {
                 Ok(pool.add(expr, span))
             }
             FunCall { id, args } => {
+                let id: self::Id = id.into();
                 let span = id.span();
-                let intrinsic = scope.lookup(id, Types::Intrinsic)?;
+                let intrinsic = scope.lookup(&id, Types::Intrinsic)?;
                 let args: Result<Vec<ExprId>, _> = args
                     .iter()
                     .map(|arg| Self::lift(pool, scope, arg))
@@ -399,14 +400,18 @@ impl Expr {
                 let span = expr.span();
                 let expr = Self::lift(pool, scope, expr)?;
                 let region = space
-                    .map(|id| scope.lookup(&id, Types::MemoryRegion))
+                    .map(|id| {
+                        let id: self::Id = id.into();
+                        scope.lookup(&id, Types::MemoryRegion)
+                    })
                     .transpose()?;
                 let expr = Expr::Pointer { expr, region };
                 Ok(pool.add(expr, span))
             }
             Id(id) => {
+                let id: self::Id = id.into();
                 let span = id.span();
-                let expr = scope.lookup(id, Types::all())?;
+                let expr = scope.lookup(&id, Types::all())?;
                 Ok(expr.with_span(span))
             }
             Int(n) => {
@@ -434,6 +439,7 @@ impl Expr {
                 Ok(pool.add(expr, span))
             }
             FunCall { id, args } => {
+                let id: self::Id = id.into();
                 let span = id.span();
                 let intrinsic = scope.lookup(&id, Types::Intrinsic)?;
                 let args: Result<Vec<ExprId>, _> = args
@@ -495,6 +501,7 @@ impl Expr {
                 Ok(pool.add(expr, span))
             }
             Build(id) => {
+                let id: self::Id = id.into();
                 let span = id.span();
                 let scanner = scope.lookup(&id, Types::Scanner)?;
                 let scanner = scanner.with_span(span);
@@ -679,12 +686,16 @@ impl JumpTarget {
         let target = match target {
             Fixed { address, space } => {
                 let region = space
-                    .map(|id| scope.lookup(&id, Types::MemoryRegion))
+                    .map(|id| {
+                        let id: self::Id = id.into();
+                        scope.lookup(&id, Types::MemoryRegion)
+                    })
                     .transpose()?;
                 let addr = Address { address, region };
                 JumpTarget::Fixed(addr)
             }
             Direct(id) => {
+                let id: self::Id = id.into();
                 let expr = scope.lookup(&id, Types::all())?;
                 JumpTarget::Direct(expr)
             }
@@ -864,6 +875,7 @@ impl Output {
             Text(id) => Some(Output::Text(id)),
             Caret | Space => None,
             Id(id) => {
+                let id = id.into();
                 let expr = scope.lookup(&id, Types::all())?;
                 Some(Output::Expr(expr))
             }
@@ -901,17 +913,15 @@ impl Scope {
         }
     }
 
-    pub fn lookup(&self, id: &Loc<Ident>, types: Types) -> LiftResult {
-        let span = id.span();
-        let id = id.value();
+    pub fn lookup(&self, id: &Id, types: Types) -> LiftResult {
         self.parent_env
             .as_ref()
             .and_then(|env| env.get(id, types))
             .or_else(|| self.env.get(id, types))
-            .ok_or(LiftError::Unknown(span))
+            .ok_or(LiftError::Unknown(*id))
     }
 
-    pub fn insert(&mut self, id: Ident, expr_id: ExprId, types: Types) {
+    pub fn insert(&mut self, id: Id, expr_id: ExprId, types: Types) {
         self.env.insert(id, expr_id, types)
     }
 
@@ -948,18 +958,17 @@ impl Scope {
             }
             Id(id) => {
                 let id: self::Id = id.into();
-                let ident = *id.ident();
                 let span = id.span();
                 if self
                     .parent_env
                     .as_ref()
-                    .and_then(|env| env.get(&ident, Types::Variable))
-                    .or_else(|| self.env.get(&ident, Types::Variable))
+                    .and_then(|env| env.get(&id, Types::Variable))
+                    .or_else(|| self.env.get(&id, Types::Variable))
                     .is_none()
                 {
                     let var = Expr::Variable(Variable { id });
                     let expr = pool.add(var, span);
-                    self.insert(ident, expr, Types::Variable);
+                    self.insert(id, expr, Types::Variable);
                 }
             }
             _ => {}
@@ -994,8 +1003,8 @@ impl Architecture {
                 Def::Alignment(x) => self.lift_alignment(x)?,
                 Def::Space(x) => self.lift_memory_region(x)?,
                 Def::Token(x) => self.lift_bit_fields(x)?,
-                Def::Varnode(x) => self.lift_regs(x)?,
-                Def::VarnodeAttach(x) => self.lift_reg_map(x)?,
+                Def::Varnode(x) => self.lift_registers(x)?,
+                Def::VarnodeAttach(x) => self.lift_register_map(x)?,
                 Def::PCodeOp(x) => self.lift_pcode_op(x)?,
                 Def::Constructor(x) => self.lift_scanner(x)?,
                 Def::Macro(x) => self.lift_macro(x)?,
@@ -1025,7 +1034,6 @@ impl Architecture {
         space: ast::Space,
     ) -> Result<(), LiftError> {
         let id: Id = space.id.into();
-        let ident = *id.ident();
         let span = id.span();
         let region = MemoryRegion {
             id,
@@ -1035,7 +1043,7 @@ impl Architecture {
             is_default: space.is_default,
         };
         let expr = self.pool.add(Expr::MemoryRegion(region), span);
-        self.scope.insert(ident, expr, Types::MemoryRegion);
+        self.scope.insert(id, expr, Types::MemoryRegion);
         Ok(())
     }
 
@@ -1047,34 +1055,33 @@ impl Architecture {
         for field in token.fields {
             let mut field = BitField::from(field);
             field.bit_width = bit_width.into_value();
-            let ident = *field.id.ident();
+            let id = field.id;
             let span = field.id.span();
             let expr = self.pool.add(Expr::BitField(field), span);
-            self.scope.insert(ident, expr, Types::BitField);
+            self.scope.insert(id, expr, Types::BitField);
         }
         Ok(())
     }
 
-    fn lift_regs(
+    fn lift_registers(
         &mut self,
         varnode: Loc<ast::Varnode>,
     ) -> Result<(), LiftError> {
         let varnode = varnode.into_value();
         for id in varnode.ids {
             let id: Id = id.into();
-            let ident = *id.ident();
             let span = id.span();
             let register = Register {
                 id,
                 size: varnode.byte_size.into_value(),
             };
             let expr = self.pool.add(Expr::Register(register), span);
-            self.scope.insert(ident, expr, Types::Register);
+            self.scope.insert(id, expr, Types::Register);
         }
         Ok(())
     }
 
-    fn lift_reg_map(
+    fn lift_register_map(
         &mut self,
         attach: Loc<ast::VarnodeAttach>,
     ) -> Result<(), LiftError> {
@@ -1084,6 +1091,7 @@ impl Architecture {
         // register map
         for id in attach.registers {
             let maybe_reg = if id.value() != &underscore {
+                let id = id.into();
                 let reg = self.scope.lookup(&id, Types::Register)?;
                 Some(reg)
             } else {
@@ -1095,6 +1103,7 @@ impl Architecture {
         self.register_maps.push(RegisterMap { registers });
         // register indices that refer to the map
         for id in attach.fields {
+            let id: Id = id.into();
             let span = id.span();
             let bit_field = self.scope.lookup(&id, Types::BitField)?;
             let index = RegisterIndex {
@@ -1102,19 +1111,17 @@ impl Architecture {
                 bit_field,
             };
             let expr = self.pool.add(Expr::RegisterIndex(index), span);
-            self.scope
-                .insert(id.into_value(), expr, Types::RegisterIndex);
+            self.scope.insert(id, expr, Types::RegisterIndex);
         }
         Ok(())
     }
 
     fn lift_pcode_op(&mut self, id: Loc<Ident>) -> Result<(), LiftError> {
         let id: Id = id.into();
-        let ident = *id.ident();
         let span = id.span();
         let op = Intrinsic { id };
         let expr = self.pool.add(Expr::Intrinsic(op), span);
-        self.scope.insert(ident, expr, Types::Intrinsic);
+        self.scope.insert(id, expr, Types::Intrinsic);
         Ok(())
     }
 
@@ -1130,7 +1137,6 @@ impl Architecture {
             .map(|stmt| Expr::lift_stmt(&mut self.pool, &mut scope, stmt))
             .collect();
         let id: Id = r#macro.id.into();
-        let ident = *id.ident();
         let span = id.span();
         let r#macro = Macro {
             id,
@@ -1139,7 +1145,7 @@ impl Architecture {
             scope,
         };
         let expr = self.pool.add(Expr::Macro(r#macro), span);
-        self.scope.insert(ident, expr, Types::Macro);
+        self.scope.insert(id, expr, Types::Macro);
         Ok(())
     }
 
@@ -1149,9 +1155,8 @@ impl Architecture {
     ) -> Result<(), LiftError> {
         let id: Id = ctr.id.into();
         let span = id.span();
-        let ident = *id.ident();
         let is_instruction = ctr.is_instruction;
-        let result = self.scope.lookup(&ctr.id, Types::Scanner).ok();
+        let result = self.scope.lookup(&id, Types::Scanner).ok();
         let (scanner, existing) = match (is_instruction, result) {
             (false, Some(scanner)) => (scanner, true),
             _ => {
@@ -1175,7 +1180,7 @@ impl Architecture {
             }
         }
         if !existing {
-            self.scope.insert(ident, scanner, Types::Scanner);
+            self.scope.insert(id, scanner, Types::Scanner);
         }
         Ok(())
     }
@@ -1192,8 +1197,7 @@ impl Default for Architecture {
             pool: ExprPool::new(),
         };
         // const space
-        let region_ident = Ident::new("const");
-        let region_id = Id::new(region_ident);
+        let region_id = Id::new(Ident::new("const"));
         let region = MemoryRegion {
             id: region_id,
             kind: ast::SpaceKind::Rom,
@@ -1203,13 +1207,12 @@ impl Default for Architecture {
         };
         let span = Span::default();
         let expr = arch.pool.add(Expr::MemoryRegion(region), span);
-        arch.scope.insert(region_ident, expr, Types::MemoryRegion);
+        arch.scope.insert(region_id, expr, Types::MemoryRegion);
         INTRINSICS.iter().for_each(|name| {
-            let ident = Ident::new(name);
-            let id = Id::new(ident);
+            let id = Id::new(Ident::new(name));
             let intrinsic = Intrinsic { id };
             let expr = arch.pool.add(Expr::Intrinsic(intrinsic), span);
-            arch.scope.insert(ident, expr, Types::Intrinsic);
+            arch.scope.insert(id, expr, Types::Intrinsic);
         });
         arch
     }

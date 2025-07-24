@@ -1,5 +1,5 @@
+use bebop_compiler::hir::Expr;
 use bebop_compiler::{error::*, hir::*};
-use bebop_parser::ast::Expr;
 use bebop_util::meta::*;
 use insta::*;
 use std::rc::Rc;
@@ -7,11 +7,12 @@ use std::rc::Rc;
 #[test]
 fn type_env() {
     let mut env = TypeEnv::new();
-    let id1 = Loc::new(Ident::new("foo"), 0..0);
+    let foo = Loc::new(Ident::new("foo"), Span::default());
     let var1 = Variable {
-        id: Id::from(id1.clone()),
+        id: Id::from(foo.clone()),
     };
-    env.insert(*id1.value(), Type::Variable(Rc::new(var1)));
+    let expr1 = Expr::Variable(var1);
+    env.insert(foo, expr1, Types::Variable);
     let id2 = Loc::new(Ident::new("bar"), 0..0);
     let var2 = Variable {
         id: Id::from(id2.clone()),
@@ -23,17 +24,6 @@ fn type_env() {
     };
     env.insert(*id3.value(), Type::Variable(Rc::new(var3)));
     assert_ron_snapshot!(env, @r#"
-    [
-      ("bar", Variable(Variable(
-        id: "bar",
-      ))),
-      ("baz", Variable(Variable(
-        id: "baz",
-      ))),
-      ("foo", Variable(Variable(
-        id: "foo",
-      ))),
-    ]
     "#);
 }
 
@@ -56,19 +46,6 @@ fn scope() -> Result<(), LiftError> {
     };
     scope.insert(*id3.value(), Type::Variable(Rc::new(var3)));
     assert_ron_snapshot!(scope, @r#"
-    Scope(
-      env: [
-        ("bar", Variable(Variable(
-          id: "bar",
-        ))),
-        ("baz", Variable(Variable(
-          id: "baz",
-        ))),
-        ("foo", Variable(Variable(
-          id: "foo",
-        ))),
-      ],
-    )
     "#);
     let local = scope.to_local();
     assert_ron_snapshot!(local, @r"
@@ -86,13 +63,6 @@ fn scope_add_vars() -> Result<(), LiftError> {
     let expr = Expr::Id(id);
     scope.add_vars(&expr, None)?;
     assert_ron_snapshot!(scope, @r#"
-    Scope(
-      env: [
-        ("foo", Variable(Variable(
-          id: "foo",
-        ))),
-      ],
-    )
     "#);
     Ok(())
 }
