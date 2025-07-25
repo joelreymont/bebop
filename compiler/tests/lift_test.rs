@@ -1,5 +1,6 @@
-use bebop_compiler::{error::*, hir::*};
+use bebop_compiler::{env::*, error::*, hir::*};
 use bebop_parser::{parse, *};
+use bebop_util::meta::*;
 use insta::*;
 
 fn parse_and_lift(s: &str) -> Result<Architecture, LiftError> {
@@ -351,6 +352,77 @@ fn lift_ctr_simple() -> Result<(), LiftError> {
       default_region: None,
       register_maps: [],
     )
+    "#);
+    Ok(())
+}
+
+#[test]
+fn expand_macro() -> Result<(), LiftError> {
+    let s = r"
+        macro add(dst, a, b)
+        {
+            local sum = a + b;
+            dst = sum;
+        }
+    ";
+    let arch = parse_and_lift(s)?;
+    let span = Span::default();
+    let id = Id::new(Ident::new("add"));
+    let dst = Id::new(Ident::new("foo"));
+    let expr = arch.scope.lookup(&id, Types::Macro)?;
+    let dst = ExprPtr::new(Expr::Variable(Variable { id: dst }), span);
+    let a = ExprPtr::new(Expr::Int(Loc::new(10, span)), span);
+    let b = ExprPtr::new(Expr::Int(Loc::new(20, span)), span);
+    let args = vec![dst, a, b];
+    let body = expr.apply(|expr| {
+        let r#macro: &Macro = expr.try_into()?;
+        r#macro.expand(&args)
+    })?;
+    assert_ron_snapshot!(body, @r#"
+    [
+      Bind(
+        lhs: Variable(Variable(
+          id: Id("dst"),
+        )),
+        rhs: Variable(Variable(
+          id: Id("foo"),
+        )),
+      ),
+      Bind(
+        lhs: Variable(Variable(
+          id: Id("a"),
+        )),
+        rhs: Int(10),
+      ),
+      Bind(
+        lhs: Variable(Variable(
+          id: Id("b"),
+        )),
+        rhs: Int(20),
+      ),
+      Bind(
+        lhs: Variable(Variable(
+          id: Id("sum"),
+        )),
+        rhs: Binary(
+          op: PLUS(Unsigned),
+          lhs: Variable(Variable(
+            id: Id("a"),
+          )),
+          rhs: Variable(Variable(
+            id: Id("b"),
+          )),
+        ),
+      ),
+      Bind(
+        lhs: Variable(Variable(
+          id: Id("dst"),
+        )),
+        rhs: Variable(Variable(
+          id: Id("sum"),
+        )),
+      ),
+    ]
     "#);
     Ok(())
 }

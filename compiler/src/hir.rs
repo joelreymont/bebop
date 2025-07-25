@@ -97,7 +97,14 @@ impl ExprPtr {
         }
     }
 
-    pub fn modify(
+    pub fn apply<T>(
+        &self,
+        fun: impl Fn(&Expr) -> Result<T, LiftError>,
+    ) -> Result<T, LiftError> {
+        fun(&self.expr.borrow())
+    }
+
+    pub fn apply_mut(
         &mut self,
         mut fun: impl FnMut(&mut Expr) -> Result<(), LiftError>,
     ) -> Result<(), LiftError> {
@@ -643,6 +650,85 @@ pub struct Macro {
     pub scope: Scope,
 }
 
+impl Macro {
+    fn lift(
+        scope: &mut Scope,
+        r#macro: ast::Macro,
+    ) -> Result<(), LiftError> {
+        let mut local_scope = scope.to_local();
+        let args: Vec<_> =
+            r#macro.args.into_iter().map(|id| id.into()).collect();
+        args.iter().for_each(|&id| {
+            let expr = Expr::Variable(Variable { id });
+            let expr = ExprPtr::new(expr, id.span());
+            local_scope.insert(id, expr, Types::Variable);
+        });
+        let body: Result<Vec<ExprPtr>, _> = r#macro
+            .body
+            .into_iter()
+            .map(|stmt| Expr::lift_stmt(&mut local_scope, stmt))
+            .collect();
+        let id: Id = r#macro.id.into();
+        let span = id.span();
+        let r#macro = Macro {
+            id,
+            args,
+            body: body?,
+            scope: local_scope,
+        };
+        let expr = ExprPtr::new(Expr::Macro(r#macro), span);
+        scope.insert(id, expr, Types::Macro);
+        Ok(())
+    }
+
+    pub fn expand(
+        &self,
+        args: &[ExprPtr],
+    ) -> Result<Vec<ExprPtr>, LiftError> {
+        if args.len() != self.args.len() {
+            let span = if !args.is_empty() {
+                args[0].span()
+            } else {
+                self.id.span()
+            };
+            return Err(LiftError::MacroArgumentMismatch(span));
+        }
+        let mut actions = Vec::new();
+        for (id, value) in self.args.iter().zip(args.iter()) {
+            let lhs = Expr::Variable(Variable { id: *id });
+            let lhs = ExprPtr::new(lhs, value.span());
+            let rhs = value.clone();
+            let expr = Expr::Bind { lhs, rhs };
+            let expr = ExprPtr::new(expr, value.span());
+            actions.push(expr)
+        }
+        actions.extend(self.body.iter().cloned());
+        Ok(actions)
+    }
+}
+
+impl<'a> TryFrom<&'a Expr> for &'a Macro {
+    type Error = LiftError;
+
+    fn try_from(expr: &'a Expr) -> Result<Self, Self::Error> {
+        match expr {
+            Expr::Macro(r#macro) => Ok(r#macro),
+            _ => Err(LiftError::InternalTypeMismatch(expr.span())),
+        }
+    }
+}
+
+impl<'a> TryFrom<&'a mut Expr> for &'a mut Macro {
+    type Error = LiftError;
+
+    fn try_from(expr: &'a mut Expr) -> Result<Self, Self::Error> {
+        match expr {
+            Expr::Macro(r#macro) => Ok(r#macro),
+            _ => Err(LiftError::InternalTypeMismatch(expr.span())),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Scanner {
     pub id: Id,
@@ -664,7 +750,7 @@ impl<'a> TryFrom<&'a mut Expr> for &'a mut Scanner {
 impl Scanner {
     pub fn macroexpand(&mut self) -> Result<(), LiftError> {
         for expr in self.rules.iter_mut() {
-            expr.modify(|expr| {
+            expr.apply_mut(|expr| {
                 let rule: &mut Rule = expr.try_into()?;
                 rule.macroexpand()?;
                 Ok(())
@@ -856,7 +942,7 @@ impl Architecture {
                 Def::VarnodeAttach(x) => self.lift_register_map(x)?,
                 Def::PCodeOp(x) => self.lift_pcode_op(x)?,
                 Def::Constructor(x) => self.lift_scanner(x)?,
-                Def::Macro(x) => self.lift_macro(x)?,
+                Def::Macro(x) => Macro::lift(&mut self.scope, x)?,
             }
         }
         Ok(())
@@ -974,30 +1060,6 @@ impl Architecture {
         Ok(())
     }
 
-    fn lift_macro(
-        &mut self,
-        r#macro: ast::Macro,
-    ) -> Result<(), LiftError> {
-        let mut scope = self.scope.to_local();
-        let args = r#macro.args.into_iter().map(|id| id.into()).collect();
-        let body: Result<Vec<ExprPtr>, _> = r#macro
-            .body
-            .into_iter()
-            .map(|stmt| Expr::lift_stmt(&mut scope, stmt))
-            .collect();
-        let id: Id = r#macro.id.into();
-        let span = id.span();
-        let r#macro = Macro {
-            id,
-            args,
-            body: body?,
-            scope,
-        };
-        let expr = ExprPtr::new(Expr::Macro(r#macro), span);
-        self.scope.insert(id, expr, Types::Macro);
-        Ok(())
-    }
-
     fn lift_scanner(
         &mut self,
         ctr: ast::Constructor,
@@ -1021,7 +1083,7 @@ impl Architecture {
         {
             let rule = Rule::lift(self.scope.to_local(), ctr)?;
             let rule = ExprPtr::new(Expr::Rule(rule), span);
-            scanner.modify(|expr| {
+            scanner.apply_mut(|expr| {
                 let scanner: &mut Scanner = expr.try_into()?;
                 scanner.rules.push(rule.clone());
                 Ok(())
@@ -1040,7 +1102,7 @@ impl Architecture {
             .filter(|((_, types), _)| *types == Types::Scanner)
             .map(|(_, expr)| expr);
         for expr in iter {
-            expr.modify(|expr| {
+            expr.apply_mut(|expr| {
                 let scanner: &mut Scanner = expr.try_into()?;
                 scanner.macroexpand()?;
                 Ok(())

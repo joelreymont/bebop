@@ -15,6 +15,7 @@ pub enum LiftError {
     Duplicate(Span),
     TypeMismatch(Span),
     SizeMismatch { span: Span, want: usize, got: usize },
+    MacroArgumentMismatch(Span),
     InternalTypeMismatch(Span),
     ParserError(ParserError),
 }
@@ -31,8 +32,11 @@ impl fmt::Debug for LiftError {
             Self::SizeMismatch { want, got, .. } => {
                 write!(f, "Size mismatch: want {want} but got {got}")
             }
-            Self::InternalTypeMismatch { .. } => {
-                write!(f, "Internal type mismatch")
+            Self::InternalTypeMismatch(span) => {
+                write!(f, "Internal type mismatch: {span:?}")
+            }
+            Self::MacroArgumentMismatch(span) => {
+                write!(f, "Macro argument mismatch: {span:?}")
             }
             Self::ParserError(e) => write!(f, "Parser error {e:?}"),
         }
@@ -48,6 +52,7 @@ impl Spanned for LiftError {
             Self::TypeMismatch(span) => *span,
             Self::SizeMismatch { span, .. } => *span,
             Self::InternalTypeMismatch(span) => *span,
+            Self::MacroArgumentMismatch(span) => *span,
             Self::ParserError(e) => e.span(),
         }
     }
