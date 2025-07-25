@@ -8,7 +8,6 @@ use std::option::Option::*;
 use std::rc::Rc;
 
 pub type Ident = ast::Ident;
-pub type Endian = ast::Endian;
 
 #[derive(Debug, Copy, Clone, PartialEq, Serialize)]
 pub struct Id(Tagged<Ident, Meta>);
@@ -515,15 +514,93 @@ pub struct MemoryRegion {
     pub is_default: bool,
 }
 
+impl MemoryRegion {
+    fn lift(
+        scope: &mut Scope,
+        space: ast::Space,
+    ) -> Result<(), LiftError> {
+        let id: Id = space.id.into();
+        let span = id.span();
+        let region = MemoryRegion {
+            id,
+            kind: space.kind,
+            size: space.size.into_value(),
+            word_size: space.word_size.into_value(),
+            is_default: space.is_default,
+        };
+        let expr = ExprPtr::new(Expr::MemoryRegion(region), span);
+        scope.insert(id, expr, Types::MemoryRegion);
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Register {
     pub id: Id,
     pub size: usize,
 }
 
+impl Register {
+    fn lift(
+        scope: &mut Scope,
+        varnode: Loc<ast::Varnode>,
+    ) -> Result<(), LiftError> {
+        let varnode = varnode.into_value();
+        for id in varnode.ids {
+            let id: Id = id.into();
+            let span = id.span();
+            let register = Register {
+                id,
+                size: varnode.byte_size.into_value(),
+            };
+            let expr = ExprPtr::new(Expr::Register(register), span);
+            scope.insert(id, expr, Types::Register);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct RegisterMap {
     pub registers: Vec<Option<ExprPtr>>,
+}
+
+impl RegisterMap {
+    fn lift(
+        scope: &mut Scope,
+        register_maps: &mut Vec<RegisterMap>,
+        attach: Loc<ast::VarnodeAttach>,
+    ) -> Result<(), LiftError> {
+        let underscore = Ident::new("_");
+        let attach = attach.into_value();
+        let mut registers = Vec::new();
+        // register map
+        for id in attach.registers {
+            let maybe_reg = if id.value() != &underscore {
+                let id = id.into();
+                let reg = scope.lookup(&id, Types::Register)?;
+                Some(reg)
+            } else {
+                None
+            };
+            registers.push(maybe_reg);
+        }
+        let register_map_idx = register_maps.len();
+        register_maps.push(RegisterMap { registers });
+        // register indices that refer to the map
+        for id in attach.fields {
+            let id: Id = id.into();
+            let span = id.span();
+            let bit_field = scope.lookup(&id, Types::BitField)?;
+            let index = RegisterIndex {
+                register_map_idx,
+                bit_field,
+            };
+            let expr = ExprPtr::new(Expr::RegisterIndex(index), span);
+            scope.insert(id, expr, Types::RegisterIndex);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -534,6 +611,24 @@ pub struct BitField {
     pub end_bit: usize,
     pub is_signed: bool,
     pub is_hex: bool,
+}
+
+impl BitField {
+    fn lift(
+        scope: &mut Scope,
+        token: ast::Token,
+    ) -> Result<(), LiftError> {
+        let bit_width = token.bit_width;
+        for field in token.fields {
+            let mut field = BitField::from(field);
+            field.bit_width = bit_width.into_value();
+            let id = field.id;
+            let span = field.id.span();
+            let expr = ExprPtr::new(Expr::BitField(field), span);
+            scope.insert(id, expr, Types::BitField);
+        }
+        Ok(())
+    }
 }
 
 impl From<ast::Field> for BitField {
@@ -563,6 +658,17 @@ pub struct Variable {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Intrinsic {
     pub id: Id,
+}
+
+impl Intrinsic {
+    fn lift(scope: &mut Scope, id: Loc<Ident>) -> Result<(), LiftError> {
+        let id: Id = id.into();
+        let span = id.span();
+        let op = Intrinsic { id };
+        let expr = ExprPtr::new(Expr::Intrinsic(op), span);
+        scope.insert(id, expr, Types::Intrinsic);
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -748,6 +854,41 @@ impl<'a> TryFrom<&'a mut Expr> for &'a mut Scanner {
 }
 
 impl Scanner {
+    fn lift(
+        scope: &mut Scope,
+        ctr: ast::Constructor,
+    ) -> Result<(), LiftError> {
+        let id: Id = ctr.id.into();
+        let span = id.span();
+        let is_instruction = ctr.is_instruction;
+        let result = scope.lookup(&id, Types::Scanner).ok();
+        let (mut scanner, existing) = match (is_instruction, result) {
+            (false, Some(scanner)) => (scanner, true),
+            _ => {
+                let scanner = Scanner {
+                    id,
+                    is_instruction,
+                    rules: Vec::new(),
+                };
+                let scanner = ExprPtr::new(Expr::Scanner(scanner), span);
+                (scanner, false)
+            }
+        };
+        {
+            let rule = Rule::lift(scope.to_local(), ctr)?;
+            let rule = ExprPtr::new(Expr::Rule(rule), span);
+            scanner.apply_mut(|expr| {
+                let scanner: &mut Scanner = expr.try_into()?;
+                scanner.rules.push(rule.clone());
+                Ok(())
+            })?;
+        }
+        if !existing {
+            scope.insert(id, scanner, Types::Scanner);
+        }
+        Ok(())
+    }
+
     pub fn macroexpand(&mut self) -> Result<(), LiftError> {
         for expr in self.rules.iter_mut() {
             expr.apply_mut(|expr| {
@@ -914,9 +1055,39 @@ impl Output {
 }
 
 #[derive(Debug, Serialize)]
+pub struct Alignment(Loc<usize>);
+
+impl Alignment {
+    fn lift(value: Loc<usize>) -> Result<Self, LiftError> {
+        Ok(Self(value))
+    }
+}
+
+impl Default for Alignment {
+    fn default() -> Self {
+        Self(Loc::new(4, Span::default()))
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct Endian(Loc<ast::Endian>);
+
+impl Default for Endian {
+    fn default() -> Self {
+        Self(Loc::new(ast::Endian::Little, Span::default()))
+    }
+}
+
+impl Endian {
+    fn lift(value: Loc<ast::Endian>) -> Result<Self, LiftError> {
+        Ok(Self(value))
+    }
+}
+
+#[derive(Debug, Serialize)]
 pub struct Architecture {
     pub endian: Endian,
-    pub alignment: usize,
+    pub alignment: Alignment,
     pub scope: Scope,
     pub default_region: Option<ExprPtr>,
     pub register_maps: Vec<RegisterMap>,
@@ -932,165 +1103,22 @@ impl Architecture {
         defs: Vec<ast::Definition>,
     ) -> Result<(), LiftError> {
         use ast::Definition as Def;
+        let scope = &mut self.scope;
+        let reg_maps = &mut self.register_maps;
         for def in defs {
             match def {
-                Def::Endian(x) => self.lift_endian(x)?,
-                Def::Alignment(x) => self.lift_alignment(x)?,
-                Def::Space(x) => self.lift_memory_region(x)?,
-                Def::Token(x) => self.lift_bit_fields(x)?,
-                Def::Varnode(x) => self.lift_registers(x)?,
-                Def::VarnodeAttach(x) => self.lift_register_map(x)?,
-                Def::PCodeOp(x) => self.lift_pcode_op(x)?,
-                Def::Constructor(x) => self.lift_scanner(x)?,
-                Def::Macro(x) => Macro::lift(&mut self.scope, x)?,
+                Def::Endian(x) => self.endian = Endian::lift(x)?,
+                Def::Alignment(x) => self.alignment = Alignment::lift(x)?,
+                Def::Space(x) => MemoryRegion::lift(scope, x)?,
+                Def::Token(x) => BitField::lift(scope, x)?,
+                Def::Varnode(x) => Register::lift(scope, x)?,
+                Def::VarnodeAttach(x) => {
+                    RegisterMap::lift(scope, reg_maps, x)?
+                }
+                Def::PCodeOp(x) => Intrinsic::lift(scope, x)?,
+                Def::Constructor(x) => Scanner::lift(scope, x)?,
+                Def::Macro(x) => Macro::lift(scope, x)?,
             }
-        }
-        Ok(())
-    }
-
-    fn lift_endian(
-        &mut self,
-        endian: Loc<ast::Endian>,
-    ) -> Result<(), LiftError> {
-        self.endian = endian.into_value();
-        Ok(())
-    }
-
-    fn lift_alignment(
-        &mut self,
-        alignment: Loc<usize>,
-    ) -> Result<(), LiftError> {
-        self.alignment = alignment.into_value();
-        Ok(())
-    }
-
-    fn lift_memory_region(
-        &mut self,
-        space: ast::Space,
-    ) -> Result<(), LiftError> {
-        let id: Id = space.id.into();
-        let span = id.span();
-        let region = MemoryRegion {
-            id,
-            kind: space.kind,
-            size: space.size.into_value(),
-            word_size: space.word_size.into_value(),
-            is_default: space.is_default,
-        };
-        let expr = ExprPtr::new(Expr::MemoryRegion(region), span);
-        self.scope.insert(id, expr, Types::MemoryRegion);
-        Ok(())
-    }
-
-    fn lift_bit_fields(
-        &mut self,
-        token: ast::Token,
-    ) -> Result<(), LiftError> {
-        let bit_width = token.bit_width;
-        for field in token.fields {
-            let mut field = BitField::from(field);
-            field.bit_width = bit_width.into_value();
-            let id = field.id;
-            let span = field.id.span();
-            let expr = ExprPtr::new(Expr::BitField(field), span);
-            self.scope.insert(id, expr, Types::BitField);
-        }
-        Ok(())
-    }
-
-    fn lift_registers(
-        &mut self,
-        varnode: Loc<ast::Varnode>,
-    ) -> Result<(), LiftError> {
-        let varnode = varnode.into_value();
-        for id in varnode.ids {
-            let id: Id = id.into();
-            let span = id.span();
-            let register = Register {
-                id,
-                size: varnode.byte_size.into_value(),
-            };
-            let expr = ExprPtr::new(Expr::Register(register), span);
-            self.scope.insert(id, expr, Types::Register);
-        }
-        Ok(())
-    }
-
-    fn lift_register_map(
-        &mut self,
-        attach: Loc<ast::VarnodeAttach>,
-    ) -> Result<(), LiftError> {
-        let underscore = Ident::new("_");
-        let attach = attach.into_value();
-        let mut registers = Vec::new();
-        // register map
-        for id in attach.registers {
-            let maybe_reg = if id.value() != &underscore {
-                let id = id.into();
-                let reg = self.scope.lookup(&id, Types::Register)?;
-                Some(reg)
-            } else {
-                None
-            };
-            registers.push(maybe_reg);
-        }
-        let register_map_idx = self.register_maps.len();
-        self.register_maps.push(RegisterMap { registers });
-        // register indices that refer to the map
-        for id in attach.fields {
-            let id: Id = id.into();
-            let span = id.span();
-            let bit_field = self.scope.lookup(&id, Types::BitField)?;
-            let index = RegisterIndex {
-                register_map_idx,
-                bit_field,
-            };
-            let expr = ExprPtr::new(Expr::RegisterIndex(index), span);
-            self.scope.insert(id, expr, Types::RegisterIndex);
-        }
-        Ok(())
-    }
-
-    fn lift_pcode_op(&mut self, id: Loc<Ident>) -> Result<(), LiftError> {
-        let id: Id = id.into();
-        let span = id.span();
-        let op = Intrinsic { id };
-        let expr = ExprPtr::new(Expr::Intrinsic(op), span);
-        self.scope.insert(id, expr, Types::Intrinsic);
-        Ok(())
-    }
-
-    fn lift_scanner(
-        &mut self,
-        ctr: ast::Constructor,
-    ) -> Result<(), LiftError> {
-        let id: Id = ctr.id.into();
-        let span = id.span();
-        let is_instruction = ctr.is_instruction;
-        let result = self.scope.lookup(&id, Types::Scanner).ok();
-        let (mut scanner, existing) = match (is_instruction, result) {
-            (false, Some(scanner)) => (scanner, true),
-            _ => {
-                let scanner = Scanner {
-                    id,
-                    is_instruction,
-                    rules: Vec::new(),
-                };
-                let scanner = ExprPtr::new(Expr::Scanner(scanner), span);
-                (scanner, false)
-            }
-        };
-        {
-            let rule = Rule::lift(self.scope.to_local(), ctr)?;
-            let rule = ExprPtr::new(Expr::Rule(rule), span);
-            scanner.apply_mut(|expr| {
-                let scanner: &mut Scanner = expr.try_into()?;
-                scanner.rules.push(rule.clone());
-                Ok(())
-            })?;
-        }
-        if !existing {
-            self.scope.insert(id, scanner, Types::Scanner);
         }
         Ok(())
     }
@@ -1115,8 +1143,8 @@ impl Architecture {
 impl Default for Architecture {
     fn default() -> Self {
         let mut arch = Self {
-            endian: Endian::Little,
-            alignment: 4,
+            endian: Endian::default(),
+            alignment: Alignment::default(),
             scope: Scope::default(),
             default_region: None,
             register_maps: Vec::new(),

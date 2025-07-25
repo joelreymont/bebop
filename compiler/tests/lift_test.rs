@@ -23,8 +23,8 @@ fn lift_token() -> Result<(), LiftError> {
     let arch = parse_and_lift(s)?;
     assert_ron_snapshot!(arch, @r#"
     Architecture(
-      endian: Little,
-      alignment: 4,
+      endian: Endian(Little),
+      alignment: Alignment(4),
       scope: Scope(
         env: TypeEnv(
           env: {
@@ -175,8 +175,8 @@ fn lift_ctr_simple() -> Result<(), LiftError> {
     let arch = parse_and_lift(s)?;
     assert_ron_snapshot!(arch, @r#"
     Architecture(
-      endian: Little,
-      alignment: 4,
+      endian: Endian(Little),
+      alignment: Alignment(4),
       scope: Scope(
         env: TypeEnv(
           env: {
