@@ -2,7 +2,7 @@ use bebop_parser::{error::*, lexer::*};
 use insta::*;
 
 #[test]
-fn lex_normal() -> Result<(), ParserError> {
+fn test_lex_normal() -> Result<(), ParserError> {
     let s = r"
         123 0b0111 0B100 0x123 0XABC foo
         if IF
@@ -153,7 +153,7 @@ fn lex_normal() -> Result<(), ParserError> {
 }
 
 #[test]
-fn lex_display() -> Result<(), ParserError> {
+fn test_lex_display() -> Result<(), ParserError> {
     let s = r#"foo^[Baz], bar bar1 is not"#;
     let mut lexer = Lexer::new(s);
     lexer.switch_to_display();

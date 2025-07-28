@@ -8,3 +8,4 @@ internment = { version = "0.8", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 ariadne = "0.5.1"
 thiserror = "2.0.12"
+ron = "0.10.1"

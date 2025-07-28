@@ -8,7 +8,6 @@ bebop-util = { path = "../util" }
 bebop-parser = { path = "../parser" }
 internment = { version = "0.8", features = ["serde"] }
 serde = { version = "1", features = ["derive", "rc"] }
-ron = "0.8"
 ariadne = "0.5.1"
 thiserror = "2.0.12"
 ordermap = { version = "0.5.8", features = ["serde"] }

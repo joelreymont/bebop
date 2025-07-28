@@ -1,5 +1,5 @@
 use ariadne::{ColorGenerator, Label, Report, ReportKind, Source};
-use bebop_compiler::{error::*, hir::*};
+use bebop_compiler::{error::*, ir::*};
 use bebop_parser::{parse, DefsParserEx, Parser};
 use bebop_util::meta::*;
 use clap::Parser as ArgParser;
@@ -12,9 +12,8 @@ struct Args {
     file: String,
 }
 
-fn parse_and_lift(s: &str) -> Result<Architecture, LiftError> {
-    let ast =
-        parse(DefsParserEx::new(), s).map_err(LiftError::ParserError)?;
+fn parse_and_lift(s: &str) -> Result<Architecture, Error> {
+    let ast = parse(DefsParserEx::new(), s).map_err(Error::ParserError)?;
     let mut arch = Architecture::new();
     arch.lift(ast)?;
     Ok(arch)

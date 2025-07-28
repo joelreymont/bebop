@@ -1,5 +1,5 @@
 use crate::env::*;
-use crate::error::LiftError;
+use crate::error::Error;
 use bebop_parser::ast;
 use bebop_util::{id::*, meta::*};
 use serde::{Serialize, Serializer};
@@ -28,18 +28,37 @@ impl ExprPtr {
         }
     }
 
-    pub fn apply<T>(
-        &self,
-        fun: impl Fn(&Expr) -> Result<T, LiftError>,
-    ) -> Result<T, LiftError> {
+    pub fn apply<T>(&self, fun: impl Fn(&Expr) -> T) -> T {
         fun(&self.expr.borrow())
     }
 
-    pub fn apply_mut(
+    pub fn apply_mut<T>(
         &mut self,
-        mut fun: impl FnMut(&mut Expr) -> Result<(), LiftError>,
-    ) -> Result<(), LiftError> {
+        mut fun: impl FnMut(&mut Expr) -> T,
+    ) -> T {
         fun(&mut self.expr.borrow_mut())
+    }
+
+    pub fn deepcopy(&mut self, env: &mut Env) -> Self {
+        let span = self.span();
+        self.apply_mut(|expr| {
+            let result = match expr {
+                Expr::Variable(Variable { id }) => {
+                    env.lookup(id, Kind::Variable).ok()
+                }
+                _ => None,
+            };
+            result.unwrap_or_else(|| {
+                let ptr = Self {
+                    expr: Rc::new(RefCell::new(expr.deepcopy(env))),
+                    span,
+                };
+                if let Expr::Variable(Variable { id }) = expr {
+                    env.insert(*id, ptr.clone(), Kind::Variable)
+                }
+                ptr
+            })
+        })
     }
 }
 
@@ -55,14 +74,17 @@ impl Serialize for ExprPtr {
         S: Serializer,
     {
         self.expr.serialize(serializer)
-        // let mut expr = serializer.serialize_struct("ExprPtr", 2)?;
-        // expr.serialize_field("expr", &self.expr)?;
-        // expr.serialize_field("span", &self.span)?;
-        // expr.end()
     }
 }
 
-pub type LiftResult = Result<ExprPtr, LiftError>;
+impl From<Expr> for ExprPtr {
+    fn from(expr: Expr) -> Self {
+        let span = expr.span();
+        Self::new(expr, span)
+    }
+}
+
+pub type LiftResult = Result<ExprPtr, Error>;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Expr {
@@ -81,7 +103,7 @@ pub enum Expr {
         region: Option<ExprPtr>,
     },
     TakeBits {
-        id: MetaId,
+        expr: ExprPtr,
         start_bit: usize,
         bit_width: usize,
     },
@@ -105,10 +127,7 @@ pub enum Expr {
         lhs: ExprPtr,
         rhs: ExprPtr,
     },
-    MacroCall {
-        r#macro: ExprPtr,
-        args: Vec<ExprPtr>,
-    },
+    MacroCall(MacroCall),
     Transfer(Transfer),
     Branch {
         condition: ExprPtr,
@@ -132,7 +151,7 @@ impl Spanned for Expr {
             Unary { rhs, .. } => rhs.span(),
             Paren(expr) => expr.span(),
             Pointer { expr, .. } => expr.span(),
-            TakeBits { id, .. } => id.span(),
+            TakeBits { expr, .. } => expr.span(),
             TakeBytes { expr, .. } => expr.span(),
             FunCall { intrinsic, .. } => intrinsic.span(),
             Register(reg) => reg.id.span(),
@@ -143,7 +162,7 @@ impl Spanned for Expr {
             Int(loc) => *loc.tag(),
             Unit(loc) => *loc.tag(),
             Bind { lhs, .. } => lhs.span(),
-            MacroCall { r#macro, .. } => r#macro.span(),
+            MacroCall(call) => call.r#macro.span(),
             Transfer(xfer) => xfer.span(),
             Branch { condition, .. } => condition.span(),
             Export(expr) => expr.span(),
@@ -158,38 +177,36 @@ impl Spanned for Expr {
 }
 
 impl Expr {
-    pub fn lift(scope: &Scope, expr: &ast::Expr) -> LiftResult {
+    pub fn lift(env: &Env, expr: &ast::Expr) -> LiftResult {
         use ast::Expr::*;
         match expr {
             Binary { op, lhs, rhs } => {
                 let span = lhs.span();
-                let lhs = Self::lift(scope, lhs)?;
-                let rhs = Self::lift(scope, rhs)?;
+                let lhs = Self::lift(env, lhs)?;
+                let rhs = Self::lift(env, rhs)?;
                 let op = BinaryOp::try_from(op)?;
                 let expr = Expr::Binary { op, lhs, rhs };
                 Ok(ExprPtr::new(expr, span))
             }
             Unary { op, rhs } => {
                 let span = rhs.span();
-                let rhs = Self::lift(scope, rhs)?;
+                let rhs = Self::lift(env, rhs)?;
                 let op = UnaryOp::try_from(op)?;
                 let expr = Expr::Unary { op, rhs };
                 Ok(ExprPtr::new(expr, span))
             }
             Paren(expr) => {
                 let span = expr.span();
-                let id = Self::lift(scope, expr)?;
+                let id = Self::lift(env, expr)?;
                 let expr = Expr::Paren(id);
                 Ok(ExprPtr::new(expr, span))
             }
             FunCall { id, args } => {
                 let id = MetaId::from(id);
                 let span = id.span();
-                let intrinsic = scope.lookup(&id, Types::Intrinsic)?;
-                let args: Result<Vec<ExprPtr>, _> = args
-                    .iter()
-                    .map(|arg| Self::lift(scope, arg))
-                    .collect();
+                let intrinsic = env.lookup(&id, Kind::Intrinsic)?;
+                let args: Result<Vec<ExprPtr>, _> =
+                    args.iter().map(|arg| Self::lift(env, arg)).collect();
                 let expr = Expr::FunCall {
                     intrinsic,
                     args: args?,
@@ -201,9 +218,12 @@ impl Expr {
                 start_bit,
                 bit_width,
             } => {
+                let id = MetaId::from(id);
                 let span = id.span();
+                let expr = env.find(&id, Kind::all())?;
+                let expr = expr.with_span(span);
                 let expr = Expr::TakeBits {
-                    id: id.into(),
+                    expr,
                     start_bit: start_bit.into_value(),
                     bit_width: bit_width.into_value(),
                 };
@@ -211,7 +231,7 @@ impl Expr {
             }
             Sized { expr, size } => {
                 let span = expr.span();
-                let id = Self::lift(scope, expr)?;
+                let id = Self::lift(env, expr)?;
                 let expr = Expr::TakeBytes {
                     expr: id,
                     n: size.into_value(),
@@ -220,11 +240,11 @@ impl Expr {
             }
             Pointer { expr, space } => {
                 let span = expr.span();
-                let expr = Self::lift(scope, expr)?;
+                let expr = Self::lift(env, expr)?;
                 let region = space
                     .map(|id| {
                         let id = MetaId::from(id);
-                        scope.lookup(&id, Types::MemoryRegion)
+                        env.lookup(&id, Kind::MemoryRegion)
                     })
                     .transpose()?;
                 let expr = Expr::Pointer { expr, region };
@@ -233,7 +253,7 @@ impl Expr {
             Id(id) => {
                 let id = MetaId::from(id);
                 let span = id.span();
-                let expr = scope.find(&id, Types::all())?;
+                let expr = env.find(&id, Kind::all())?;
                 Ok(expr.with_span(span))
             }
             Int(n) => {
@@ -245,37 +265,44 @@ impl Expr {
         }
     }
 
-    pub fn lift_stmt(
-        scope: &mut Scope,
-        stmt: ast::Statement,
-    ) -> LiftResult {
+    pub fn lift_stmt(env: &mut Env, stmt: ast::Statement) -> LiftResult {
         use ast::Statement::*;
         match stmt {
             Bind { lhs, rhs } => {
                 let span = lhs.span();
-                scope.add_local_vars(&lhs, None)?;
-                let lhs = Self::lift(scope, &lhs)?;
-                let rhs = Self::lift(scope, &rhs)?;
+                env.add_local_vars(&lhs, None)?;
+                let lhs = Self::lift(env, &lhs)?;
+                let rhs = Self::lift(env, &rhs)?;
                 let expr = Expr::Bind { lhs, rhs };
                 Ok(ExprPtr::new(expr, span))
             }
             FunCall { id, args } => {
                 let id = MetaId::from(id);
                 let span = id.span();
-                let intrinsic = scope.lookup(&id, Types::Intrinsic)?;
                 let args: Result<Vec<ExprPtr>, _> = args
                     .into_iter()
-                    .map(|arg| Self::lift(scope, &arg))
+                    .map(|arg| Self::lift(env, &arg))
                     .collect();
-                let expr = Expr::FunCall {
-                    intrinsic,
-                    args: args?,
+                let expr = if let Ok(intrinsic) =
+                    env.lookup(&id, Kind::Intrinsic)
+                {
+                    Expr::FunCall {
+                        intrinsic,
+                        args: args?,
+                    }
+                } else {
+                    let r#macro = env.lookup(&id, Kind::Macro)?;
+                    let call = MacroCall {
+                        r#macro,
+                        args: args?,
+                    };
+                    Expr::MacroCall(call)
                 };
                 Ok(ExprPtr::new(expr, span))
             }
             Goto(target) => {
                 let span = target.span();
-                let target = JumpTarget::lift(scope, target)?;
+                let target = JumpTarget::lift(env, target)?;
                 let xfer = Transfer {
                     kind: TransferKind::Goto,
                     target,
@@ -285,7 +312,7 @@ impl Expr {
             }
             Call(target) => {
                 let span = target.span();
-                let target = JumpTarget::lift(scope, target)?;
+                let target = JumpTarget::lift(env, target)?;
                 let xfer = Transfer {
                     kind: TransferKind::Call,
                     target,
@@ -295,7 +322,7 @@ impl Expr {
             }
             Return(target) => {
                 let span = target.span();
-                let target = JumpTarget::lift(scope, target)?;
+                let target = JumpTarget::lift(env, target)?;
                 let xfer = Transfer {
                     kind: TransferKind::Return,
                     target,
@@ -305,14 +332,14 @@ impl Expr {
             }
             Branch { condition, target } => {
                 let span = condition.span();
-                let condition = Expr::lift(scope, &condition)?;
-                let target = JumpTarget::lift(scope, target)?;
+                let condition = Expr::lift(env, &condition)?;
+                let target = JumpTarget::lift(env, target)?;
                 let expr = Expr::Branch { condition, target };
                 Ok(ExprPtr::new(expr, span))
             }
             Export(expr) => {
                 let span = expr.span();
-                let expr = Expr::lift(scope, &expr)?;
+                let expr = Expr::lift(env, &expr)?;
                 let expr = Expr::Export(expr);
                 Ok(ExprPtr::new(expr, span))
             }
@@ -324,7 +351,7 @@ impl Expr {
             Build(id) => {
                 let id = MetaId::from(id);
                 let span = id.span();
-                let scanner = scope.lookup(&id, Types::Scanner)?;
+                let scanner = env.lookup(&id, Kind::Scanner)?;
                 let scanner = scanner.with_span(span);
                 let expr = Expr::Build(scanner);
                 Ok(ExprPtr::new(expr, span))
@@ -332,11 +359,147 @@ impl Expr {
         }
     }
 
-    pub fn macroexpand(
-        _i: usize,
-        _id: ExprPtr,
-    ) -> Result<(usize, Vec<ExprPtr>), LiftError> {
-        Ok((0, Vec::new()))
+    pub fn deepcopy(&mut self, env: &mut Env) -> Self {
+        use Expr::*;
+        match self {
+            Binary { op, lhs, rhs } => Binary {
+                op: op.clone(),
+                lhs: lhs.deepcopy(env),
+                rhs: rhs.deepcopy(env),
+            },
+            Unary { op, rhs } => Unary {
+                op: op.clone(),
+                rhs: rhs.deepcopy(env),
+            },
+            Paren(expr) => Paren(expr.deepcopy(env)),
+            Pointer { expr, region } => Pointer {
+                expr: expr.deepcopy(env),
+                region: region.clone(),
+            },
+            TakeBits {
+                expr,
+                start_bit,
+                bit_width,
+            } => TakeBits {
+                expr: expr.deepcopy(env),
+                start_bit: *start_bit,
+                bit_width: *bit_width,
+            },
+            TakeBytes { expr, n } => TakeBytes {
+                expr: expr.deepcopy(env),
+                n: *n,
+            },
+            FunCall { intrinsic, args } => {
+                let intrinsic = intrinsic.clone(); // Shallow copy!
+                let args =
+                    args.iter_mut().map(|arg| arg.deepcopy(env)).collect();
+                FunCall { intrinsic, args }
+            }
+            Bind { lhs, rhs } => Bind {
+                lhs: lhs.deepcopy(env),
+                rhs: rhs.deepcopy(env),
+            },
+            MacroCall(call) => {
+                let r#macro = call.r#macro.clone(); // Shallow copy!
+                let args = call
+                    .args
+                    .iter_mut()
+                    .map(|arg| arg.deepcopy(env))
+                    .collect();
+                let call = self::MacroCall { r#macro, args };
+                MacroCall(call)
+            }
+            Transfer(xfer) => Transfer(xfer.deepcopy(env)),
+            Branch { condition, target } => Branch {
+                condition: condition.deepcopy(env),
+                target: target.deepcopy(env),
+            },
+            Export(expr) => Export(expr.deepcopy(env)),
+            Build(expr) => Build(expr.clone()), // Shallow copy!
+            expr => expr.clone(),               // Shallow copy!
+        }
+    }
+
+    pub fn rename_variable(
+        &mut self,
+        new: &Id,
+        span: Span,
+    ) -> Result<(), Error> {
+        match self {
+            Expr::Variable(Variable { id }) => {
+                id.rename(new);
+                Ok(())
+            }
+            _ => Err(Error::Rename(span)),
+        }
+    }
+
+    pub fn splice(
+        &mut self,
+        value: &ExprPtr,
+        when: &impl Fn(&Expr) -> bool,
+    ) {
+        use Expr::*;
+        match self {
+            Binary { lhs, rhs, .. } => {
+                lhs.apply_mut(|x| x.splice(value, when));
+                rhs.apply_mut(|x| x.splice(value, when));
+                lhs.apply(when).then(|| *lhs = value.clone());
+                rhs.apply(when).then(|| *rhs = value.clone());
+            }
+            Unary { rhs, .. } => {
+                rhs.apply_mut(|x| x.splice(value, when));
+                rhs.apply(when).then(|| *rhs = value.clone());
+            }
+            Paren(expr) => {
+                expr.apply_mut(|x| x.splice(value, when));
+                expr.apply(when).then(|| *expr = value.clone());
+            }
+            Pointer { expr, .. } => {
+                expr.apply_mut(|x| x.splice(value, when));
+                expr.apply(when).then(|| *expr = value.clone());
+            }
+            TakeBits { expr, .. } => {
+                expr.apply_mut(|x| x.splice(value, when));
+                expr.apply(when).then(|| *expr = value.clone());
+            }
+            TakeBytes { expr, .. } => {
+                expr.apply_mut(|x| x.splice(value, when));
+                expr.apply(when).then(|| *expr = value.clone());
+            }
+            FunCall { args, .. } => {
+                args.iter_mut().for_each(|expr| {
+                    expr.apply_mut(|x| x.splice(value, when));
+                    expr.apply(when).then(|| *expr = value.clone());
+                });
+            }
+            Bind { lhs, rhs } => {
+                lhs.apply_mut(|x| x.splice(value, when));
+                rhs.apply_mut(|x| x.splice(value, when));
+                lhs.apply(when).then(|| *lhs = value.clone());
+                rhs.apply(when).then(|| *rhs = value.clone());
+            }
+            MacroCall(self::MacroCall { args, .. }) => {
+                args.iter_mut().for_each(|expr| {
+                    expr.apply_mut(|x| x.splice(value, when));
+                    expr.apply(when).then(|| *expr = value.clone());
+                });
+            }
+            Transfer(self::Transfer { target, .. }) => {
+                target.splice(value, when);
+            }
+            Branch { condition, target } => {
+                condition.apply(when).then(|| *condition = value.clone());
+                target.splice(value, when);
+            }
+            Export(expr) => {
+                expr.apply(when).then(|| *expr = value.clone());
+            }
+            Build(expr) => {
+                expr.apply(when).then(|| *expr = value.clone());
+            }
+            _ => {}
+        }
     }
 }
 
@@ -364,7 +527,7 @@ pub enum BinaryOp {
 }
 
 impl TryFrom<&Loc<ast::BinaryOp>> for BinaryOp {
-    type Error = LiftError;
+    type Error = Error;
 
     fn try_from(op: &Loc<ast::BinaryOp>) -> Result<Self, Self::Error> {
         let (op, span) = (op.value(), op.tag());
@@ -407,7 +570,7 @@ impl TryFrom<&Loc<ast::BinaryOp>> for BinaryOp {
             SMOD => Self::MOD(Hint::Signed),
             FMUL => Self::MUL(Hint::Float),
             FDIV => Self::DIV(Hint::Float),
-            _ => return Err(LiftError::Invalid(*span)),
+            _ => return Err(Error::Invalid(*span)),
         };
         Ok(op)
     }
@@ -421,7 +584,7 @@ pub enum UnaryOp {
 }
 
 impl TryFrom<&Loc<ast::UnaryOp>> for UnaryOp {
-    type Error = LiftError;
+    type Error = Error;
 
     fn try_from(op: &Loc<ast::UnaryOp>) -> Result<Self, Self::Error> {
         let (op, span) = (op.value(), op.tag());
@@ -431,7 +594,7 @@ impl TryFrom<&Loc<ast::UnaryOp>> for UnaryOp {
             INV => Self::INV,
             NEG => Self::NEG { is_float: false },
             FNEG => Self::NEG { is_float: true },
-            _ => return Err(LiftError::Invalid(*span)),
+            _ => return Err(Error::Invalid(*span)),
         };
         Ok(op)
     }
@@ -447,10 +610,7 @@ pub struct MemoryRegion {
 }
 
 impl MemoryRegion {
-    fn lift(
-        scope: &mut Scope,
-        space: ast::Space,
-    ) -> Result<(), LiftError> {
+    fn lift(env: &mut Env, space: ast::Space) -> Result<(), Error> {
         let id: MetaId = space.id.into();
         let span = id.span();
         let region = MemoryRegion {
@@ -461,7 +621,7 @@ impl MemoryRegion {
             is_default: space.is_default,
         };
         let expr = ExprPtr::new(Expr::MemoryRegion(region), span);
-        scope.insert(id, expr, Types::MemoryRegion);
+        env.insert(id, expr, Kind::MemoryRegion);
         Ok(())
     }
 }
@@ -474,9 +634,9 @@ pub struct Register {
 
 impl Register {
     fn lift(
-        scope: &mut Scope,
+        env: &mut Env,
         varnode: Loc<ast::Varnode>,
-    ) -> Result<(), LiftError> {
+    ) -> Result<(), Error> {
         let varnode = varnode.into_value();
         for id in varnode.ids {
             let id: MetaId = id.into();
@@ -486,7 +646,7 @@ impl Register {
                 size: varnode.byte_size.into_value(),
             };
             let expr = ExprPtr::new(Expr::Register(register), span);
-            scope.insert(id, expr, Types::Register);
+            env.insert(id, expr, Kind::Register);
         }
         Ok(())
     }
@@ -499,10 +659,10 @@ pub struct RegisterMap {
 
 impl RegisterMap {
     fn lift(
-        scope: &mut Scope,
+        env: &mut Env,
         register_maps: &mut Vec<RegisterMap>,
         attach: Loc<ast::VarnodeAttach>,
-    ) -> Result<(), LiftError> {
+    ) -> Result<(), Error> {
         let underscore = Id::new("_");
         let attach = attach.into_value();
         let mut registers = Vec::new();
@@ -510,7 +670,7 @@ impl RegisterMap {
         for id in attach.registers {
             let maybe_reg = if id.id() != &underscore {
                 let id = id.into();
-                let reg = scope.lookup(&id, Types::Register)?;
+                let reg = env.lookup(&id, Kind::Register)?;
                 Some(reg)
             } else {
                 None
@@ -523,13 +683,13 @@ impl RegisterMap {
         for id in attach.fields {
             let id: MetaId = id.into();
             let span = id.span();
-            let bit_field = scope.lookup(&id, Types::BitField)?;
+            let bit_field = env.lookup(&id, Kind::BitField)?;
             let index = RegisterIndex {
                 register_map_idx,
                 bit_field,
             };
             let expr = ExprPtr::new(Expr::RegisterIndex(index), span);
-            scope.insert(id, expr, Types::RegisterIndex);
+            env.insert(id, expr, Kind::RegisterIndex);
         }
         Ok(())
     }
@@ -546,10 +706,7 @@ pub struct BitField {
 }
 
 impl BitField {
-    fn lift(
-        scope: &mut Scope,
-        token: ast::Token,
-    ) -> Result<(), LiftError> {
+    fn lift(env: &mut Env, token: ast::Token) -> Result<(), Error> {
         let bit_width = token.bit_width;
         for field in token.fields {
             let mut field = BitField::from(field);
@@ -557,7 +714,7 @@ impl BitField {
             let id = field.id;
             let span = field.id.span();
             let expr = ExprPtr::new(Expr::BitField(field), span);
-            scope.insert(id, expr, Types::BitField);
+            env.insert(id, expr, Kind::BitField);
         }
         Ok(())
     }
@@ -593,12 +750,12 @@ pub struct Intrinsic {
 }
 
 impl Intrinsic {
-    fn lift(scope: &mut Scope, id: LocId) -> Result<(), LiftError> {
+    fn lift(env: &mut Env, id: LocId) -> Result<(), Error> {
         let id = MetaId::from(id);
         let span = id.span();
         let op = Intrinsic { id };
         let expr = ExprPtr::new(Expr::Intrinsic(op), span);
-        scope.insert(id, expr, Types::Intrinsic);
+        env.insert(id, expr, Kind::Intrinsic);
         Ok(())
     }
 }
@@ -613,16 +770,16 @@ pub enum JumpTarget {
 
 impl JumpTarget {
     pub fn lift(
-        scope: &Scope,
+        env: &Env,
         target: ast::JumpTarget,
-    ) -> Result<Self, LiftError> {
+    ) -> Result<Self, Error> {
         use ast::JumpTarget::*;
         let target = match target {
             Fixed { address, space } => {
                 let region = space
                     .map(|id| {
                         let id = MetaId::from(id);
-                        scope.lookup(&id, Types::MemoryRegion)
+                        env.lookup(&id, Kind::MemoryRegion)
                     })
                     .transpose()?;
                 let addr = Address { address, region };
@@ -630,16 +787,38 @@ impl JumpTarget {
             }
             Direct(id) => {
                 let id = MetaId::from(id);
-                let expr = scope.find(&id, Types::all())?;
+                let expr = env.find(&id, Kind::all())?;
                 JumpTarget::Direct(expr)
             }
             Indirect(expr) => {
-                let expr = Expr::lift(scope, &expr)?;
+                let expr = Expr::lift(env, &expr)?;
                 JumpTarget::Indirect(expr)
             }
             Label(id) => JumpTarget::Label(id), // TODO: Validate in this env!
         };
         Ok(target)
+    }
+
+    pub fn deepcopy(&mut self, env: &mut Env) -> Self {
+        use JumpTarget::*;
+        match self {
+            Direct(expr) => Direct(expr.deepcopy(env)),
+            Indirect(expr) => Indirect(expr.deepcopy(env)),
+            target => target.clone(), // Shallow copy!
+        }
+    }
+
+    pub fn splice(
+        &mut self,
+        value: &ExprPtr,
+        when: &impl Fn(&Expr) -> bool,
+    ) {
+        use JumpTarget::*;
+        match self {
+            Direct(expr) => expr.apply_mut(|x| x.splice(value, when)),
+            Indirect(expr) => expr.apply_mut(|x| x.splice(value, when)),
+            _ => {}
+        }
     }
 }
 
@@ -647,7 +826,7 @@ impl Spanned for JumpTarget {
     fn span(&self) -> Span {
         use JumpTarget::*;
         match self {
-            Fixed(_) => Span::default(), // TODO: Fix this!
+            Fixed(address) => address.span(),
             Direct(expr) => expr.span(),
             Indirect(expr) => expr.span(),
             Label(id) => id.span(),
@@ -661,6 +840,12 @@ pub struct Address {
     pub region: Option<ExprPtr>,
 }
 
+impl Spanned for Address {
+    fn span(&self) -> Span {
+        self.address.span()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Transfer {
     pub kind: TransferKind,
@@ -670,6 +855,15 @@ pub struct Transfer {
 impl Spanned for Transfer {
     fn span(&self) -> Span {
         self.target.span()
+    }
+}
+
+impl Transfer {
+    pub fn deepcopy(&mut self, env: &mut Env) -> Self {
+        Self {
+            kind: self.kind.clone(),
+            target: self.target.deepcopy(env),
+        }
     }
 }
 
@@ -685,26 +879,23 @@ pub struct Macro {
     pub id: MetaId,
     pub args: Vec<MetaId>,
     pub body: Vec<ExprPtr>,
-    pub scope: Scope,
+    pub env: Env,
 }
 
 impl Macro {
-    fn lift(
-        scope: &mut Scope,
-        r#macro: ast::Macro,
-    ) -> Result<(), LiftError> {
-        let mut local_scope = scope.to_local();
+    fn lift(env: &mut Env, r#macro: ast::Macro) -> Result<(), Error> {
+        let mut local_env = env.to_local();
         let args: Vec<_> =
             r#macro.args.into_iter().map(|id| id.into()).collect();
         args.iter().for_each(|&id| {
             let expr = Expr::Variable(Variable { id });
             let expr = ExprPtr::new(expr, id.span());
-            local_scope.insert(id, expr, Types::Variable);
+            local_env.insert(id, expr, Kind::Variable);
         });
         let body: Result<Vec<ExprPtr>, _> = r#macro
             .body
             .into_iter()
-            .map(|stmt| Expr::lift_stmt(&mut local_scope, stmt))
+            .map(|stmt| Expr::lift_stmt(&mut local_env, stmt))
             .collect();
         let id: MetaId = r#macro.id.into();
         let span = id.span();
@@ -712,57 +903,90 @@ impl Macro {
             id,
             args,
             body: body?,
-            scope: local_scope,
+            env: local_env,
         };
         let expr = ExprPtr::new(Expr::Macro(r#macro), span);
-        scope.insert(id, expr, Types::Macro);
+        env.insert(id, expr, Kind::Macro);
         Ok(())
     }
 
     pub fn expand(
-        &self,
+        &mut self,
         args: &[ExprPtr],
-    ) -> Result<Vec<ExprPtr>, LiftError> {
+    ) -> Result<Vec<ExprPtr>, Error> {
         if args.len() != self.args.len() {
             let span = if !args.is_empty() {
                 args[0].span()
             } else {
                 self.id.span()
             };
-            return Err(LiftError::MacroArgumentMismatch(span));
+            return Err(Error::MacroArgumentMismatch(span));
         }
         let mut actions = Vec::new();
-        for (id, value) in self.args.iter().zip(args.iter()) {
-            let lhs = Expr::Variable(Variable { id: *id });
-            let lhs = ExprPtr::new(lhs, value.span());
-            let rhs = value.clone();
-            let expr = Expr::Bind { lhs, rhs };
-            let expr = ExprPtr::new(expr, value.span());
-            actions.push(expr)
+        let mut env = Env::default();
+        for action in self.body.iter_mut() {
+            let mut action =
+                action.apply_mut(|expr| expr.deepcopy(&mut env));
+            for (name, value) in self.args.iter().zip(args.iter()) {
+                action.splice(value, &|expr| {
+                    matches!(
+                        expr,
+                        Expr::Variable(Variable { id }) if name == id
+                    )
+                });
+            }
+            actions.push(ExprPtr::from(action));
         }
-        actions.extend(self.body.iter().cloned());
         Ok(actions)
     }
 }
 
 impl<'a> TryFrom<&'a Expr> for &'a Macro {
-    type Error = LiftError;
+    type Error = Error;
 
     fn try_from(expr: &'a Expr) -> Result<Self, Self::Error> {
         match expr {
             Expr::Macro(r#macro) => Ok(r#macro),
-            _ => Err(LiftError::InternalTypeMismatch(expr.span())),
+            _ => Err(Error::InternalTypeMismatch(expr.span())),
         }
     }
 }
 
 impl<'a> TryFrom<&'a mut Expr> for &'a mut Macro {
-    type Error = LiftError;
+    type Error = Error;
 
     fn try_from(expr: &'a mut Expr) -> Result<Self, Self::Error> {
         match expr {
             Expr::Macro(r#macro) => Ok(r#macro),
-            _ => Err(LiftError::InternalTypeMismatch(expr.span())),
+            _ => Err(Error::InternalTypeMismatch(expr.span())),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct MacroCall {
+    pub r#macro: ExprPtr,
+    pub args: Vec<ExprPtr>,
+}
+
+impl<'a> TryFrom<&'a Expr> for &'a MacroCall {
+    type Error = Error;
+
+    fn try_from(expr: &'a Expr) -> Result<Self, Self::Error> {
+        match expr {
+            Expr::MacroCall(call) => Ok(call),
+            _ => Err(Error::InternalTypeMismatch(expr.span())),
+        }
+    }
+}
+
+impl<'a> TryFrom<&'a mut Expr> for &'a mut MacroCall {
+    type Error = Error;
+
+    fn try_from(expr: &'a mut Expr) -> Result<Self, Self::Error> {
+        match expr {
+            Expr::MacroCall(call) => Ok(call),
+            _ => Err(Error::InternalTypeMismatch(expr.span())),
         }
     }
 }
@@ -774,26 +998,34 @@ pub struct Scanner {
     pub is_instruction: bool,
 }
 
+impl<'a> TryFrom<&'a Expr> for &'a Scanner {
+    type Error = Error;
+
+    fn try_from(expr: &'a Expr) -> Result<Self, Self::Error> {
+        match expr {
+            Expr::Scanner(scanner) => Ok(scanner),
+            _ => Err(Error::InternalTypeMismatch(expr.span())),
+        }
+    }
+}
+
 impl<'a> TryFrom<&'a mut Expr> for &'a mut Scanner {
-    type Error = LiftError;
+    type Error = Error;
 
     fn try_from(expr: &'a mut Expr) -> Result<Self, Self::Error> {
         match expr {
             Expr::Scanner(scanner) => Ok(scanner),
-            _ => Err(LiftError::InternalTypeMismatch(expr.span())),
+            _ => Err(Error::InternalTypeMismatch(expr.span())),
         }
     }
 }
 
 impl Scanner {
-    fn lift(
-        scope: &mut Scope,
-        ctr: ast::Constructor,
-    ) -> Result<(), LiftError> {
+    fn lift(env: &mut Env, ctr: ast::Constructor) -> Result<(), Error> {
         let id: MetaId = ctr.id.into();
         let span = id.span();
         let is_instruction = ctr.is_instruction;
-        let result = scope.lookup(&id, Types::Scanner).ok();
+        let result = env.lookup(&id, Kind::Scanner).ok();
         let (mut scanner, existing) = match (is_instruction, result) {
             (false, Some(scanner)) => (scanner, true),
             _ => {
@@ -807,7 +1039,7 @@ impl Scanner {
             }
         };
         {
-            let rule = Rule::lift(scope.to_local(), ctr)?;
+            let rule = Rule::lift(env.to_local(), ctr)?;
             let rule = ExprPtr::new(Expr::Rule(rule), span);
             scanner.apply_mut(|expr| {
                 let scanner: &mut Scanner = expr.try_into()?;
@@ -816,12 +1048,12 @@ impl Scanner {
             })?;
         }
         if !existing {
-            scope.insert(id, scanner, Types::Scanner);
+            env.insert(id, scanner, Kind::Scanner);
         }
         Ok(())
     }
 
-    pub fn macroexpand(&mut self) -> Result<(), LiftError> {
+    pub fn macroexpand(&mut self) -> Result<(), Error> {
         for expr in self.rules.iter_mut() {
             expr.apply_mut(|expr| {
                 let rule: &mut Rule = expr.try_into()?;
@@ -843,37 +1075,48 @@ pub struct Rule {
     pub setup: Vec<ExprPtr>,
     pub actions: Vec<ExprPtr>,
     pub pattern: Pattern,
-    pub scope: Scope,
+    pub env: Env,
+}
+
+impl<'a> TryFrom<&'a Expr> for &'a Rule {
+    type Error = Error;
+
+    fn try_from(expr: &'a Expr) -> Result<Self, Self::Error> {
+        match expr {
+            Expr::Rule(rule) => Ok(rule),
+            _ => Err(Error::InternalTypeMismatch(expr.span())),
+        }
+    }
 }
 
 impl<'a> TryFrom<&'a mut Expr> for &'a mut Rule {
-    type Error = LiftError;
+    type Error = Error;
 
     fn try_from(expr: &'a mut Expr) -> Result<Self, Self::Error> {
         match expr {
             Expr::Rule(rule) => Ok(rule),
-            _ => Err(LiftError::InternalTypeMismatch(expr.span())),
+            _ => Err(Error::InternalTypeMismatch(expr.span())),
         }
     }
 }
 
 impl Rule {
     pub fn lift(
-        mut scope: Scope,
+        mut env: Env,
         ctr: ast::Constructor,
-    ) -> Result<Self, LiftError> {
-        let setup: Result<Vec<ExprPtr>, LiftError> = ctr
+    ) -> Result<Self, Error> {
+        let setup: Result<Vec<ExprPtr>, Error> = ctr
             .context
             .into_iter()
-            .map(|stmt| Expr::lift_stmt(&mut scope, stmt))
+            .map(|stmt| Expr::lift_stmt(&mut env, stmt))
             .collect();
-        let pattern = Self::lift_pattern(&scope, ctr.pattern)?;
+        let pattern = Self::lift_pattern(&env, ctr.pattern)?;
         let mnemonic: Vec<Output> = ctr
             .display
             .mnemonic
             .into_iter()
-            .map(|piece| Output::lift(&scope, piece))
-            .collect::<Result<Vec<Option<Output>>, LiftError>>()?
+            .map(|piece| Output::lift(&env, piece))
+            .collect::<Result<Vec<Option<Output>>, Error>>()?
             .into_iter()
             .flatten()
             .collect();
@@ -881,15 +1124,15 @@ impl Rule {
             .display
             .output
             .into_iter()
-            .map(|piece| Output::lift(&scope, piece))
-            .collect::<Result<Vec<Option<Output>>, LiftError>>()?
+            .map(|piece| Output::lift(&env, piece))
+            .collect::<Result<Vec<Option<Output>>, Error>>()?
             .into_iter()
             .flatten()
             .collect();
-        let actions: Result<Vec<ExprPtr>, LiftError> = ctr
+        let actions: Result<Vec<ExprPtr>, Error> = ctr
             .body
             .into_iter()
-            .map(|stmt| Expr::lift_stmt(&mut scope, stmt))
+            .map(|stmt| Expr::lift_stmt(&mut env, stmt))
             .collect();
         let rule = Self {
             id: ctr.id.into(),
@@ -898,28 +1141,28 @@ impl Rule {
             setup: setup?,
             actions: actions?,
             pattern,
-            scope,
+            env,
         };
         Ok(rule)
     }
 
     fn lift_pat_expr(
-        scope: &Scope,
+        env: &Env,
         acc: &mut Pattern,
         expr: ast::Expr,
-    ) -> Result<(), LiftError> {
+    ) -> Result<(), Error> {
         use ast::Expr::*;
         match expr {
             Binary { op, lhs, rhs }
                 if op.value() == &ast::BinaryOp::JOIN =>
             {
-                let lhs = Expr::lift(scope, &lhs)?;
-                let rhs = Expr::lift(scope, &rhs)?;
+                let lhs = Expr::lift(env, &lhs)?;
+                let rhs = Expr::lift(env, &rhs)?;
                 acc.push(lhs);
                 acc.push(rhs);
             }
             expr => {
-                let expr = Expr::lift(scope, &expr)?;
+                let expr = Expr::lift(env, &expr)?;
                 acc.push(expr);
             }
         }
@@ -927,36 +1170,49 @@ impl Rule {
     }
 
     fn lift_pattern(
-        scope: &Scope,
+        env: &Env,
         expr: Option<ast::Expr>,
-    ) -> Result<Pattern, LiftError> {
+    ) -> Result<Pattern, Error> {
         let mut pattern = Vec::new();
-        expr.map(|expr| Self::lift_pat_expr(scope, &mut pattern, expr))
+        expr.map(|expr| Self::lift_pat_expr(env, &mut pattern, expr))
             .transpose()?;
         Ok(pattern)
     }
 
-    pub fn macroexpand(&mut self) -> Result<(), LiftError> {
-        // Look for macro calls
-        // Merge macro scope into the local one
-        // For each macro argument
-        //    Bind arg id to arg value
-        //    Prepend to a copy of macro statements
-        // Insert augmented macro statements at the point of the macro call
-        /*
-        pub struct Macro {
-            pub id: MetaId,
-            pub args: Vec<Id>,
-            pub body: Vec<ExprPtr>,
-            pub scope: Scope,
+    pub fn macroexpand(&mut self) -> Result<(), Error> {
+        let result: Result<Vec<(usize, Vec<ExprPtr>)>, Error> = self
+            .actions
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, expr)| {
+                expr.apply(|x| matches!(x, Expr::MacroCall(_)))
+            })
+            .map(|(i, expr)| {
+                expr.apply_mut(|x| {
+                    let call: &mut MacroCall = x.try_into()?;
+                    call.r#macro.apply_mut(|x| {
+                        let r#macro: &mut Macro = x.try_into()?;
+                        let actions = r#macro.expand(&call.args)?;
+                        Ok((i, actions))
+                    })
+                })
+            })
+            .collect();
+        let mut items = result?;
+        for (_, actions) in &mut items {
+            let mut env = self.env.empty();
+            for expr in actions.iter_mut() {
+                env.import(expr)?;
+            }
+            env.make_unique()?;
+            self.env.merge(&env);
         }
-        */
-        // self.actions.iter().enumerate().for_each(
-        //     |(i, id)| match &mut pool[id] {
-        //         Expr::Rule(rule) => rule.macroexpand(pool),
-        //         _ => Err(LiftError::InternalTypeMismatch(id.span())),
-        //     },
-        // );
+        let mut added_count = 0;
+        for (i, actions) in items {
+            let ix = i + added_count;
+            added_count += actions.len() - 1;
+            self.actions.splice(ix..ix + 1, actions.into_iter());
+        }
         Ok(())
     }
 }
@@ -969,16 +1225,16 @@ pub enum Output {
 
 impl Output {
     pub fn lift(
-        scope: &Scope,
+        env: &Env,
         piece: ast::DisplayPiece,
-    ) -> Result<Option<Self>, LiftError> {
+    ) -> Result<Option<Self>, Error> {
         use ast::DisplayPiece::*;
         let out = match piece {
             Text(id) => Some(Output::Text(id)),
             Caret | Space => None,
             Id(id) => {
                 let id = id.into();
-                let expr = scope.find(&id, Types::all())?;
+                let expr = env.find(&id, Kind::all())?;
                 Some(Output::Expr(expr))
             }
         };
@@ -990,7 +1246,7 @@ impl Output {
 pub struct Alignment(Loc<usize>);
 
 impl Alignment {
-    fn lift(value: Loc<usize>) -> Result<Self, LiftError> {
+    fn lift(value: Loc<usize>) -> Result<Self, Error> {
         Ok(Self(value))
     }
 }
@@ -1011,7 +1267,7 @@ impl Default for Endian {
 }
 
 impl Endian {
-    fn lift(value: Loc<ast::Endian>) -> Result<Self, LiftError> {
+    fn lift(value: Loc<ast::Endian>) -> Result<Self, Error> {
         Ok(Self(value))
     }
 }
@@ -1020,7 +1276,7 @@ impl Endian {
 pub struct Architecture {
     pub endian: Endian,
     pub alignment: Alignment,
-    pub scope: Scope,
+    pub env: Env,
     pub default_region: Option<ExprPtr>,
     pub register_maps: Vec<RegisterMap>,
 }
@@ -1033,42 +1289,42 @@ impl Architecture {
     pub fn lift(
         &mut self,
         defs: Vec<ast::Definition>,
-    ) -> Result<(), LiftError> {
-        use ast::Definition as Def;
-        let scope = &mut self.scope;
+    ) -> Result<(), Error> {
+        use ast::Definition as D;
+        let env = &mut self.env;
         let reg_maps = &mut self.register_maps;
         for def in defs {
             match def {
-                Def::Endian(x) => self.endian = Endian::lift(x)?,
-                Def::Alignment(x) => self.alignment = Alignment::lift(x)?,
-                Def::Space(x) => MemoryRegion::lift(scope, x)?,
-                Def::Token(x) => BitField::lift(scope, x)?,
-                Def::Varnode(x) => Register::lift(scope, x)?,
-                Def::VarnodeAttach(x) => {
-                    RegisterMap::lift(scope, reg_maps, x)?
+                D::Endian(x) => self.endian = Endian::lift(x)?,
+                D::Alignment(x) => self.alignment = Alignment::lift(x)?,
+                D::Space(x) => MemoryRegion::lift(env, x)?,
+                D::Token(x) => BitField::lift(env, x)?,
+                D::Varnode(x) => Register::lift(env, x)?,
+                D::VarnodeAttach(x) => {
+                    RegisterMap::lift(env, reg_maps, x)?
                 }
-                Def::PCodeOp(x) => Intrinsic::lift(scope, x)?,
-                Def::Constructor(x) => Scanner::lift(scope, x)?,
-                Def::Macro(x) => Macro::lift(scope, x)?,
+                D::PCodeOp(x) => Intrinsic::lift(env, x)?,
+                D::Constructor(x) => Scanner::lift(env, x)?,
+                D::Macro(x) => Macro::lift(env, x)?,
             }
         }
         Ok(())
     }
 
-    pub fn macroexpand(&mut self) -> Result<(), LiftError> {
-        let iter = self
-            .scope
-            .iter_mut()
-            .filter(|((_, types), _)| *types == Types::Scanner)
-            .map(|(_, expr)| expr);
-        for expr in iter {
-            expr.apply_mut(|expr| {
-                let scanner: &mut Scanner = expr.try_into()?;
-                scanner.macroexpand()?;
-                Ok(())
-            })?;
-        }
-        Ok(())
+    pub fn macroexpand(&mut self) -> Result<(), Error> {
+        self.env.apply_iter_mut(|iter| {
+            let iter = iter
+                .filter(|(k, _)| *k.kind() == Kind::Scanner)
+                .map(|(_, v)| v.expr_mut());
+            for expr in iter {
+                expr.apply_mut(|expr| {
+                    let scanner: &mut Scanner = expr.try_into()?;
+                    scanner.macroexpand()?;
+                    Ok(())
+                })?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -1077,7 +1333,7 @@ impl Default for Architecture {
         let mut arch = Self {
             endian: Endian::default(),
             alignment: Alignment::default(),
-            scope: Scope::default(),
+            env: Env::default(),
             default_region: None,
             register_maps: Vec::new(),
         };
@@ -1092,18 +1348,18 @@ impl Default for Architecture {
         };
         let span = Span::default();
         let expr = ExprPtr::new(Expr::MemoryRegion(region), span);
-        arch.scope.insert(region_id, expr, Types::MemoryRegion);
+        arch.env.insert(region_id, expr, Kind::MemoryRegion);
         INTRINSICS.iter().for_each(|name| {
             let id = MetaId::from(name);
             let intrinsic = Intrinsic { id };
             let expr = ExprPtr::new(Expr::Intrinsic(intrinsic), span);
-            arch.scope.insert(id, expr, Types::Intrinsic);
+            arch.env.insert(id, expr, Kind::Intrinsic);
         });
         arch
     }
 }
 
-const INTRINSICS: [&str; 31] = [
+const INTRINSICS: [&str; 10] = [
     "inst_start",
     "inst_next",
     "zext",
@@ -1114,25 +1370,4 @@ const INTRINSICS: [&str; 31] = [
     "int2float",
     "float2float",
     "floor",
-    "mfsr",
-    "mtsr",
-    "msync",
-    "isync",
-    "dpref",
-    "dsb",
-    "isb",
-    "break",
-    "syscall",
-    "trap",
-    "cctl",
-    "setgie",
-    "setend",
-    "TLB_TargetRead",
-    "TLB_TargetWrite",
-    "TLB_RWrite",
-    "TLB_RWriteLock",
-    "TLB_Unlock",
-    "TLB_Probe",
-    "TLB_Invalidate",
-    "TLB_FlushAll",
 ];

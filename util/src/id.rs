@@ -4,6 +4,12 @@ use internment::Intern;
 use serde::{Serialize, Serializer};
 use std::{fmt, ops::Deref};
 
+static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+pub fn reset_unique_id_counter() {
+    COUNTER.store(0, atomic::Ordering::SeqCst);
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Id(Intern<String>);
 
@@ -25,8 +31,7 @@ impl Id {
     }
 
     pub fn unique(&self) -> Self {
-        static COUNTER: AtomicUsize = AtomicUsize::new(0);
-        let n = COUNTER.fetch_add(1, atomic::Ordering::SeqCst) as u32;
+        let n = COUNTER.fetch_add(1, atomic::Ordering::SeqCst);
         let mut s = String::from(&*self.0);
         s.push_str(&n.to_string());
         Self::new(s)
@@ -68,6 +73,10 @@ impl LocId {
     pub fn id(&self) -> &Id {
         self.0.value()
     }
+
+    pub fn unique(&self) -> Self {
+        Self(self.0.map(|id| id.unique()))
+    }
 }
 
 impl From<Loc<Id>> for LocId {
@@ -103,8 +112,20 @@ impl MetaId {
         self.0.value()
     }
 
+    pub fn into_id(&self) -> Id {
+        *self.id()
+    }
+
     pub fn span(&self) -> Span {
         self.0.tag().span()
+    }
+
+    pub fn unique(&self) -> Self {
+        Self(self.0.map(|id| id.unique()))
+    }
+
+    pub fn rename(&mut self, id: &Id) {
+        self.0 = self.0.map(|_| *id)
     }
 }
 

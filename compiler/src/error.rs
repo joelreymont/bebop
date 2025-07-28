@@ -1,15 +1,10 @@
-use crate::hir::*;
 use bebop_parser::error::*;
 use bebop_util::{id::*, meta::*};
 use std::fmt;
 
 #[derive(Clone)]
-pub enum TypeEnvError {
-    TooManyEntries(ExprPtr),
-}
-
-#[derive(Clone)]
-pub enum LiftError {
+pub enum Error {
+    ParserError(ParserError),
     Unknown(MetaId),
     Invalid(Span),
     Duplicate(Span),
@@ -18,12 +13,13 @@ pub enum LiftError {
     MacroArgumentMismatch(Span),
     InternalTypeMismatch(Span),
     MacroScopeMerge(Span),
-    ParserError(ParserError),
+    Rename(Span),
 }
 
-impl fmt::Debug for LiftError {
+impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Self::ParserError(e) => write!(f, "Parser error {e:?}"),
             Self::Unknown(id) => write!(f, "Unknown {id:?}"),
             Self::Invalid(span) => write!(f, "Invalid {span:?}"),
             Self::Duplicate(span) => write!(f, "Duplicate {span:?}"),
@@ -40,16 +36,22 @@ impl fmt::Debug for LiftError {
                 write!(f, "Macro argument mismatch: {span:?}")
             }
             Self::MacroScopeMerge(span) => {
-                write!(f, "Duplicate scope item found while expanding macro: {span:?}")
+                write!(
+                    f,
+                    "Duplicate scope item found while expanding macro: {span:?}"
+                )
             }
-            Self::ParserError(e) => write!(f, "Parser error {e:?}"),
+            Self::Rename(span) => {
+                write!(f, "Internal rename error: {span:?}")
+            }
         }
     }
 }
 
-impl Spanned for LiftError {
+impl Spanned for Error {
     fn span(&self) -> Span {
         match self {
+            Self::ParserError(e) => e.span(),
             Self::Unknown(id) => id.span(),
             Self::Invalid(span) => *span,
             Self::Duplicate(span) => *span,
@@ -58,7 +60,7 @@ impl Spanned for LiftError {
             Self::InternalTypeMismatch(span) => *span,
             Self::MacroArgumentMismatch(span) => *span,
             Self::MacroScopeMerge(span) => *span,
-            Self::ParserError(e) => e.span(),
+            Self::Rename(span) => *span,
         }
     }
 }
