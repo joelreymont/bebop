@@ -1,7 +1,7 @@
 use crate::error::LiftError;
 use crate::hir::*;
 use bebop_parser::ast;
-use bebop_util::meta::*;
+use bebop_util::{id::*, meta::*};
 use bitflags::bitflags;
 use core::hash::Hash;
 use ordermap::map::{Iter, IterMut, OrderMap};
@@ -22,9 +22,7 @@ bitflags! {
     }
 }
 
-// #[derive(Debug, Clone, Serialize)]
-// struct Entry(Types, ExprPtr);
-type Key = (Ident, Types);
+type Key = (Id, Types);
 type Env = OrderMap<Key, ExprPtr>;
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -53,28 +51,28 @@ impl TypeEnv {
         Self::default()
     }
 
-    pub fn insert(&mut self, id: Id, expr: ExprPtr, types: Types) {
-        self.env.insert((*id.ident(), types), expr);
+    pub fn insert(&mut self, id: MetaId, expr: ExprPtr, types: Types) {
+        self.env.insert((*id.id(), types), expr);
     }
 
-    pub fn get(&self, id: &Id, types: Types) -> Option<ExprPtr> {
-        let key = (*id.ident(), types);
+    pub fn get(&self, id: &MetaId, types: Types) -> Option<ExprPtr> {
+        let key = (*id.id(), types);
         self.env.get(&key).cloned()
     }
 
-    pub fn find(&self, id: &Id, mask: Types) -> Option<ExprPtr> {
+    pub fn find(&self, id: &MetaId, mask: Types) -> Option<ExprPtr> {
         self.find_iter(id, mask).next()
     }
 
     pub fn find_iter(
         &self,
-        id: &Id,
+        id: &MetaId,
         mask: Types,
     ) -> impl Iterator<Item = ExprPtr> {
         self.env
             .iter()
             .filter(move |((ident, types), _)| {
-                ident == id.ident() && types.intersects(mask)
+                ident == id.id() && types.intersects(mask)
             })
             .map(|(_, expr)| expr.clone())
     }
@@ -125,7 +123,7 @@ impl Scope {
         }
     }
 
-    pub fn lookup(&self, id: &Id, types: Types) -> LiftResult {
+    pub fn lookup(&self, id: &MetaId, types: Types) -> LiftResult {
         self.parent_env
             .as_ref()
             .and_then(|env| env.get(id, types))
@@ -133,7 +131,7 @@ impl Scope {
             .ok_or(LiftError::Unknown(*id))
     }
 
-    pub fn insert(&mut self, id: Id, expr: ExprPtr, types: Types) {
+    pub fn insert(&mut self, id: MetaId, expr: ExprPtr, types: Types) {
         self.env.insert(id, expr, types)
     }
 
@@ -145,7 +143,7 @@ impl Scope {
         self.env.is_empty()
     }
 
-    pub fn find(&self, id: &Id, mask: Types) -> LiftResult {
+    pub fn find(&self, id: &MetaId, mask: Types) -> LiftResult {
         self.parent_env
             .as_ref()
             .and_then(|env| env.find(id, mask))
@@ -184,7 +182,7 @@ impl Scope {
                 self.add_local_vars(expr, expected_size)?
             }
             Id(id) => {
-                let id: self::Id = id.into();
+                let id = MetaId::from(id);
                 let span = id.span();
                 if self
                     .parent_env

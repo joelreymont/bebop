@@ -1,4 +1,4 @@
-use bebop_util::meta::*;
+use bebop_util::{meta::*, id::*};
 use super::{
 	ast::*,
 	error::ParserError,
@@ -25,12 +25,12 @@ Infix<L, Op, R>: Expr = {
 			Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) },
 };
 
-pub Ident: Loc<Ident> = {
-	Located<"ident"> => <>.map(Ident::new),
+pub Ident: LocId = {
+	Located<"ident"> => LocId::from(<>.map(Id::new)),
 };
 
-pub DisplayIdent: Loc<Ident> = {
-	Located<"display ident"> => <>.map(Ident::new),
+pub DisplayIdent: LocId = {
+	Located<"display ident"> => LocId::from(<>.map(Id::new)),
 };
 
 pub Defs: Vec<Definition> = <Def+>;
@@ -63,7 +63,7 @@ pub SpaceDef: Space = {
 	"define" "space" <id:Ident> <kind:SpaceKind> <mods:SpaceMod+> ";" =>
 		Space::new(id, kind, mods),
 	"define" "space" <id:Located<"register">> <kind:SpaceKind> <mods:SpaceMod+> ";" =>
-		Space::new(id.map(|_| Ident::new("register")), kind, mods),
+		Space::new(LocId::from(id.map(|_| Id::new("register"))), kind, mods),
 };
 
 pub SpaceKind: SpaceKind = "type" "=" <Ident> =>? {
@@ -112,7 +112,7 @@ pub Constructor: Constructor = {
 	},
 };
 
-pub ConstructorStart: (Loc<Ident>, Display, bool) = {
+pub ConstructorStart: (LocId, Display, bool) = {
 	<i:Ident> ":" <d:Display> "is" => (i, d, false),
 	":" <i:DisplayIdent> <d:Display> "is" => (i, d, true),
 };
@@ -135,14 +135,14 @@ pub Output: Vec<DisplayPiece> = <OutputPiece*>;
 pub MnemonicPiece: DisplayPiece = {
 	"caret" => DisplayPiece::Caret,
 	<DisplayIdent> => DisplayPiece::Id(<>),
-	<"text"> => DisplayPiece::Text(Ident::new(<>)),
+	<"text"> => DisplayPiece::Text(Id::new(<>)),
 }
 
 pub OutputPiece: DisplayPiece = {
 	"caret" => DisplayPiece::Caret,
 	" " => DisplayPiece::Space,
 	<DisplayIdent> => DisplayPiece::Id(<>),
-	<"text"> => DisplayPiece::Text(Ident::new(<>)),
+	<"text"> => DisplayPiece::Text(Id::new(<>)),
 }
 
 //
@@ -351,7 +351,7 @@ pub Macro: Macro = {
 		Macro { id, args, body: body }
 };
 
-pub PCodeOp: Loc<Ident> = {
+pub PCodeOp: LocId = {
 	"define" "pcodeop" <Ident> ";"
 };
 
@@ -452,11 +452,11 @@ pub ExprVarnode: Expr = {
 		Expr::Sized { expr: Box::new(n), size },
 };
 
-pub Label: Loc<Ident> = "<" <Ident> ">";
+pub Label: LocId = "<" <Ident> ">";
 pub ExprIdent: Expr = <Ident> => Expr::Id(<>);
 pub ExprNumber: Expr = <Number> => Expr::Int(<>);
 
-pub ArgNames: Vec<Loc<Ident>> = Sep<Ident, ",">;
+pub ArgNames: Vec<LocId> = Sep<Ident, ",">;
 pub Args: Vec<Expr> = Sep<Expr, ",">;
 
 SizedPointer<T>: Expr = {

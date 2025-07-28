@@ -1,6 +1,6 @@
 use bebop_compiler::{env::*, error::*, hir::*};
 use bebop_parser::{parse, *};
-use bebop_util::meta::*;
+use bebop_util::{id::*, meta::*};
 use insta::*;
 
 fn parse_and_lift(s: &str) -> Result<Architecture, LiftError> {
@@ -29,107 +29,107 @@ fn lift_token() -> Result<(), LiftError> {
         env: TypeEnv(
           env: {
             ("const", Types("MemoryRegion")): MemoryRegion(MemoryRegion(
-              id: Id("const"),
+              id: MetaId("const"),
               kind: Rom,
               size: 0,
               word_size: 1,
               is_default: false,
             )),
             ("inst_start", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("inst_start"),
+              id: MetaId("inst_start"),
             )),
             ("inst_next", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("inst_next"),
+              id: MetaId("inst_next"),
             )),
             ("zext", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("zext"),
+              id: MetaId("zext"),
             )),
             ("sext", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("sext"),
+              id: MetaId("sext"),
             )),
             ("carry", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("carry"),
+              id: MetaId("carry"),
             )),
             ("scarry", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("scarry"),
+              id: MetaId("scarry"),
             )),
             ("sborrow", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("sborrow"),
+              id: MetaId("sborrow"),
             )),
             ("int2float", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("int2float"),
+              id: MetaId("int2float"),
             )),
             ("float2float", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("float2float"),
+              id: MetaId("float2float"),
             )),
             ("floor", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("floor"),
+              id: MetaId("floor"),
             )),
             ("mfsr", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("mfsr"),
+              id: MetaId("mfsr"),
             )),
             ("mtsr", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("mtsr"),
+              id: MetaId("mtsr"),
             )),
             ("msync", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("msync"),
+              id: MetaId("msync"),
             )),
             ("isync", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("isync"),
+              id: MetaId("isync"),
             )),
             ("dpref", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("dpref"),
+              id: MetaId("dpref"),
             )),
             ("dsb", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("dsb"),
+              id: MetaId("dsb"),
             )),
             ("isb", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("isb"),
+              id: MetaId("isb"),
             )),
             ("break", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("break"),
+              id: MetaId("break"),
             )),
             ("syscall", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("syscall"),
+              id: MetaId("syscall"),
             )),
             ("trap", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("trap"),
+              id: MetaId("trap"),
             )),
             ("cctl", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("cctl"),
+              id: MetaId("cctl"),
             )),
             ("setgie", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("setgie"),
+              id: MetaId("setgie"),
             )),
             ("setend", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("setend"),
+              id: MetaId("setend"),
             )),
             ("TLB_TargetRead", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("TLB_TargetRead"),
+              id: MetaId("TLB_TargetRead"),
             )),
             ("TLB_TargetWrite", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("TLB_TargetWrite"),
+              id: MetaId("TLB_TargetWrite"),
             )),
             ("TLB_RWrite", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("TLB_RWrite"),
+              id: MetaId("TLB_RWrite"),
             )),
             ("TLB_RWriteLock", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("TLB_RWriteLock"),
+              id: MetaId("TLB_RWriteLock"),
             )),
             ("TLB_Unlock", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("TLB_Unlock"),
+              id: MetaId("TLB_Unlock"),
             )),
             ("TLB_Probe", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("TLB_Probe"),
+              id: MetaId("TLB_Probe"),
             )),
             ("TLB_Invalidate", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("TLB_Invalidate"),
+              id: MetaId("TLB_Invalidate"),
             )),
             ("TLB_FlushAll", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("TLB_FlushAll"),
+              id: MetaId("TLB_FlushAll"),
             )),
             ("Rt", Types("BitField")): BitField(BitField(
-              id: Id("Rt"),
+              id: MetaId("Rt"),
               bit_width: 32,
               start_bit: 20,
               end_bit: 24,
@@ -137,7 +137,7 @@ fn lift_token() -> Result<(), LiftError> {
               is_hex: false,
             )),
             ("Ra", Types("BitField")): BitField(BitField(
-              id: Id("Ra"),
+              id: MetaId("Ra"),
               bit_width: 32,
               start_bit: 20,
               end_bit: 24,
@@ -145,7 +145,7 @@ fn lift_token() -> Result<(), LiftError> {
               is_hex: true,
             )),
             ("Rb", Types("BitField")): BitField(BitField(
-              id: Id("Rb"),
+              id: MetaId("Rb"),
               bit_width: 32,
               start_bit: 20,
               end_bit: 24,
@@ -181,107 +181,107 @@ fn lift_ctr_simple() -> Result<(), LiftError> {
         env: TypeEnv(
           env: {
             ("const", Types("MemoryRegion")): MemoryRegion(MemoryRegion(
-              id: Id("const"),
+              id: MetaId("const"),
               kind: Rom,
               size: 0,
               word_size: 1,
               is_default: false,
             )),
             ("inst_start", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("inst_start"),
+              id: MetaId("inst_start"),
             )),
             ("inst_next", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("inst_next"),
+              id: MetaId("inst_next"),
             )),
             ("zext", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("zext"),
+              id: MetaId("zext"),
             )),
             ("sext", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("sext"),
+              id: MetaId("sext"),
             )),
             ("carry", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("carry"),
+              id: MetaId("carry"),
             )),
             ("scarry", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("scarry"),
+              id: MetaId("scarry"),
             )),
             ("sborrow", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("sborrow"),
+              id: MetaId("sborrow"),
             )),
             ("int2float", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("int2float"),
+              id: MetaId("int2float"),
             )),
             ("float2float", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("float2float"),
+              id: MetaId("float2float"),
             )),
             ("floor", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("floor"),
+              id: MetaId("floor"),
             )),
             ("mfsr", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("mfsr"),
+              id: MetaId("mfsr"),
             )),
             ("mtsr", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("mtsr"),
+              id: MetaId("mtsr"),
             )),
             ("msync", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("msync"),
+              id: MetaId("msync"),
             )),
             ("isync", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("isync"),
+              id: MetaId("isync"),
             )),
             ("dpref", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("dpref"),
+              id: MetaId("dpref"),
             )),
             ("dsb", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("dsb"),
+              id: MetaId("dsb"),
             )),
             ("isb", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("isb"),
+              id: MetaId("isb"),
             )),
             ("break", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("break"),
+              id: MetaId("break"),
             )),
             ("syscall", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("syscall"),
+              id: MetaId("syscall"),
             )),
             ("trap", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("trap"),
+              id: MetaId("trap"),
             )),
             ("cctl", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("cctl"),
+              id: MetaId("cctl"),
             )),
             ("setgie", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("setgie"),
+              id: MetaId("setgie"),
             )),
             ("setend", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("setend"),
+              id: MetaId("setend"),
             )),
             ("TLB_TargetRead", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("TLB_TargetRead"),
+              id: MetaId("TLB_TargetRead"),
             )),
             ("TLB_TargetWrite", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("TLB_TargetWrite"),
+              id: MetaId("TLB_TargetWrite"),
             )),
             ("TLB_RWrite", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("TLB_RWrite"),
+              id: MetaId("TLB_RWrite"),
             )),
             ("TLB_RWriteLock", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("TLB_RWriteLock"),
+              id: MetaId("TLB_RWriteLock"),
             )),
             ("TLB_Unlock", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("TLB_Unlock"),
+              id: MetaId("TLB_Unlock"),
             )),
             ("TLB_Probe", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("TLB_Probe"),
+              id: MetaId("TLB_Probe"),
             )),
             ("TLB_Invalidate", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("TLB_Invalidate"),
+              id: MetaId("TLB_Invalidate"),
             )),
             ("TLB_FlushAll", Types("Intrinsic")): Intrinsic(Intrinsic(
-              id: Id("TLB_FlushAll"),
+              id: MetaId("TLB_FlushAll"),
             )),
             ("Rt", Types("BitField")): BitField(BitField(
-              id: Id("Rt"),
+              id: MetaId("Rt"),
               bit_width: 32,
               start_bit: 20,
               end_bit: 24,
@@ -289,7 +289,7 @@ fn lift_ctr_simple() -> Result<(), LiftError> {
               is_hex: false,
             )),
             ("Ra", Types("BitField")): BitField(BitField(
-              id: Id("Ra"),
+              id: MetaId("Ra"),
               bit_width: 32,
               start_bit: 10,
               end_bit: 16,
@@ -297,14 +297,14 @@ fn lift_ctr_simple() -> Result<(), LiftError> {
               is_hex: false,
             )),
             ("foo", Types("Scanner")): Scanner(Scanner(
-              id: Id("foo"),
+              id: MetaId("foo"),
               rules: [
                 Rule(Rule(
-                  id: Id("foo"),
+                  id: MetaId("foo"),
                   mnemonic: [],
                   output: [
                     Expr(BitField(BitField(
-                      id: Id("Rt"),
+                      id: MetaId("Rt"),
                       bit_width: 32,
                       start_bit: 20,
                       end_bit: 24,
@@ -322,11 +322,11 @@ fn lift_ctr_simple() -> Result<(), LiftError> {
                   ),
                 )),
                 Rule(Rule(
-                  id: Id("foo"),
+                  id: MetaId("foo"),
                   mnemonic: [],
                   output: [
                     Expr(BitField(BitField(
-                      id: Id("Ra"),
+                      id: MetaId("Ra"),
                       bit_width: 32,
                       start_bit: 10,
                       end_bit: 16,
@@ -367,8 +367,8 @@ fn expand_macro() -> Result<(), LiftError> {
     ";
     let arch = parse_and_lift(s)?;
     let span = Span::default();
-    let id = Id::new(Ident::new("add"));
-    let dst = Id::new(Ident::new("foo"));
+    let id = MetaId::from("add");
+    let dst = MetaId::from("foo");
     let expr = arch.scope.lookup(&id, Types::Macro)?;
     let dst = ExprPtr::new(Expr::Variable(Variable { id: dst }), span);
     let a = ExprPtr::new(Expr::Int(Loc::new(10, span)), span);
@@ -382,44 +382,44 @@ fn expand_macro() -> Result<(), LiftError> {
     [
       Bind(
         lhs: Variable(Variable(
-          id: Id("dst"),
+          id: MetaId("dst"),
         )),
         rhs: Variable(Variable(
-          id: Id("foo"),
+          id: MetaId("foo"),
         )),
       ),
       Bind(
         lhs: Variable(Variable(
-          id: Id("a"),
+          id: MetaId("a"),
         )),
         rhs: Int(10),
       ),
       Bind(
         lhs: Variable(Variable(
-          id: Id("b"),
+          id: MetaId("b"),
         )),
         rhs: Int(20),
       ),
       Bind(
         lhs: Variable(Variable(
-          id: Id("sum"),
+          id: MetaId("sum"),
         )),
         rhs: Binary(
           op: PLUS(Unsigned),
           lhs: Variable(Variable(
-            id: Id("a"),
+            id: MetaId("a"),
           )),
           rhs: Variable(Variable(
-            id: Id("b"),
+            id: MetaId("b"),
           )),
         ),
       ),
       Bind(
         lhs: Variable(Variable(
-          id: Id("dst"),
+          id: MetaId("dst"),
         )),
         rhs: Variable(Variable(
-          id: Id("sum"),
+          id: MetaId("sum"),
         )),
       ),
     ]

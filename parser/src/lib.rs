@@ -1,4 +1,4 @@
-use bebop_util::meta::*;
+use bebop_util::id::*;
 use lalrpop_util::lalrpop_mod;
 
 pub mod ast;
@@ -58,14 +58,12 @@ impl Parser for DefsParserEx {
     }
 }
 
-pub type CtrStartParserEx = ParserEx<
-    grammar::ConstructorStartParser,
-    (Loc<ast::Ident>, ast::Display, bool),
->;
+pub type CtrStartParserEx =
+    ParserEx<grammar::ConstructorStartParser, (LocId, ast::Display, bool)>;
 
 impl Parser for CtrStartParserEx {
     type T = grammar::ConstructorStartParser;
-    type U = (Loc<ast::Ident>, ast::Display, bool);
+    type U = (LocId, ast::Display, bool);
 
     fn new() -> Self {
         ParserEx {

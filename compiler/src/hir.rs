@@ -1,79 +1,11 @@
 use crate::env::*;
 use crate::error::LiftError;
 use bebop_parser::ast;
-use bebop_util::meta::*;
+use bebop_util::{id::*, meta::*};
 use serde::{Serialize, Serializer};
 use std::cell::RefCell;
 use std::option::Option::*;
 use std::rc::Rc;
-
-pub type Ident = ast::Ident;
-
-#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
-pub struct Id(Tagged<Ident, Meta>);
-
-impl Id {
-    pub fn new(id: Ident) -> Self {
-        Self(Tagged::new(id, Meta::default()))
-    }
-
-    pub fn ident(&self) -> &Ident {
-        self.0.value()
-    }
-
-    pub fn span(&self) -> Span {
-        self.0.tag().span()
-    }
-}
-
-impl From<&Loc<Ident>> for Id {
-    fn from(id: &Loc<Ident>) -> Self {
-        let inner = id.map_tag(Meta::new);
-        Self(inner)
-    }
-}
-
-impl From<Loc<Ident>> for Id {
-    fn from(id: Loc<Ident>) -> Self {
-        Self::from(&id)
-    }
-}
-
-impl Spanned for Id {
-    fn span(&self) -> Span {
-        self.0.tag().span()
-    }
-}
-
-#[derive(Debug, Copy, Clone, Default, PartialEq, Serialize)]
-pub struct Meta {
-    pub size: Option<usize>,
-    pub hint: Option<Hint>,
-    #[serde(skip_serializing)]
-    pub span: Span,
-}
-
-impl Meta {
-    pub fn new(span: Span) -> Self {
-        Self {
-            span,
-            ..Default::default()
-        }
-    }
-}
-
-impl Spanned for Meta {
-    fn span(&self) -> Span {
-        self.span
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Serialize)]
-pub enum Hint {
-    Unsigned,
-    Signed,
-    Float,
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExprPtr {
@@ -149,7 +81,7 @@ pub enum Expr {
         region: Option<ExprPtr>,
     },
     TakeBits {
-        id: Id,
+        id: MetaId,
         start_bit: usize,
         bit_width: usize,
     },
@@ -184,7 +116,7 @@ pub enum Expr {
     },
     Export(ExprPtr),
     Build(ExprPtr),
-    Label(Id),
+    Label(MetaId),
     // Invalid expressions, for pooling only!
     MemoryRegion(MemoryRegion),
     Intrinsic(Intrinsic),
@@ -251,7 +183,7 @@ impl Expr {
                 Ok(ExprPtr::new(expr, span))
             }
             FunCall { id, args } => {
-                let id: self::Id = id.into();
+                let id = MetaId::from(id);
                 let span = id.span();
                 let intrinsic = scope.lookup(&id, Types::Intrinsic)?;
                 let args: Result<Vec<ExprPtr>, _> = args
@@ -291,7 +223,7 @@ impl Expr {
                 let expr = Self::lift(scope, expr)?;
                 let region = space
                     .map(|id| {
-                        let id: self::Id = id.into();
+                        let id = MetaId::from(id);
                         scope.lookup(&id, Types::MemoryRegion)
                     })
                     .transpose()?;
@@ -299,7 +231,7 @@ impl Expr {
                 Ok(ExprPtr::new(expr, span))
             }
             Id(id) => {
-                let id: self::Id = id.into();
+                let id = MetaId::from(id);
                 let span = id.span();
                 let expr = scope.find(&id, Types::all())?;
                 Ok(expr.with_span(span))
@@ -328,7 +260,7 @@ impl Expr {
                 Ok(ExprPtr::new(expr, span))
             }
             FunCall { id, args } => {
-                let id: self::Id = id.into();
+                let id = MetaId::from(id);
                 let span = id.span();
                 let intrinsic = scope.lookup(&id, Types::Intrinsic)?;
                 let args: Result<Vec<ExprPtr>, _> = args
@@ -390,7 +322,7 @@ impl Expr {
                 Ok(ExprPtr::new(expr, span))
             }
             Build(id) => {
-                let id: self::Id = id.into();
+                let id = MetaId::from(id);
                 let span = id.span();
                 let scanner = scope.lookup(&id, Types::Scanner)?;
                 let scanner = scanner.with_span(span);
@@ -507,7 +439,7 @@ impl TryFrom<&Loc<ast::UnaryOp>> for UnaryOp {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MemoryRegion {
-    pub id: Id,
+    pub id: MetaId,
     pub kind: ast::SpaceKind,
     pub size: usize,
     pub word_size: usize,
@@ -519,7 +451,7 @@ impl MemoryRegion {
         scope: &mut Scope,
         space: ast::Space,
     ) -> Result<(), LiftError> {
-        let id: Id = space.id.into();
+        let id: MetaId = space.id.into();
         let span = id.span();
         let region = MemoryRegion {
             id,
@@ -536,7 +468,7 @@ impl MemoryRegion {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Register {
-    pub id: Id,
+    pub id: MetaId,
     pub size: usize,
 }
 
@@ -547,7 +479,7 @@ impl Register {
     ) -> Result<(), LiftError> {
         let varnode = varnode.into_value();
         for id in varnode.ids {
-            let id: Id = id.into();
+            let id: MetaId = id.into();
             let span = id.span();
             let register = Register {
                 id,
@@ -571,12 +503,12 @@ impl RegisterMap {
         register_maps: &mut Vec<RegisterMap>,
         attach: Loc<ast::VarnodeAttach>,
     ) -> Result<(), LiftError> {
-        let underscore = Ident::new("_");
+        let underscore = Id::new("_");
         let attach = attach.into_value();
         let mut registers = Vec::new();
         // register map
         for id in attach.registers {
-            let maybe_reg = if id.value() != &underscore {
+            let maybe_reg = if id.id() != &underscore {
                 let id = id.into();
                 let reg = scope.lookup(&id, Types::Register)?;
                 Some(reg)
@@ -589,7 +521,7 @@ impl RegisterMap {
         register_maps.push(RegisterMap { registers });
         // register indices that refer to the map
         for id in attach.fields {
-            let id: Id = id.into();
+            let id: MetaId = id.into();
             let span = id.span();
             let bit_field = scope.lookup(&id, Types::BitField)?;
             let index = RegisterIndex {
@@ -605,7 +537,7 @@ impl RegisterMap {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BitField {
-    pub id: Id,
+    pub id: MetaId,
     pub bit_width: usize,
     pub start_bit: usize,
     pub end_bit: usize,
@@ -652,17 +584,17 @@ pub struct RegisterIndex {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Variable {
-    pub id: Id,
+    pub id: MetaId,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Intrinsic {
-    pub id: Id,
+    pub id: MetaId,
 }
 
 impl Intrinsic {
-    fn lift(scope: &mut Scope, id: Loc<Ident>) -> Result<(), LiftError> {
-        let id: Id = id.into();
+    fn lift(scope: &mut Scope, id: LocId) -> Result<(), LiftError> {
+        let id = MetaId::from(id);
         let span = id.span();
         let op = Intrinsic { id };
         let expr = ExprPtr::new(Expr::Intrinsic(op), span);
@@ -676,7 +608,7 @@ pub enum JumpTarget {
     Fixed(Address),
     Direct(ExprPtr),
     Indirect(ExprPtr),
-    Label(Loc<Ident>),
+    Label(LocId),
 }
 
 impl JumpTarget {
@@ -689,7 +621,7 @@ impl JumpTarget {
             Fixed { address, space } => {
                 let region = space
                     .map(|id| {
-                        let id: self::Id = id.into();
+                        let id = MetaId::from(id);
                         scope.lookup(&id, Types::MemoryRegion)
                     })
                     .transpose()?;
@@ -697,7 +629,7 @@ impl JumpTarget {
                 JumpTarget::Fixed(addr)
             }
             Direct(id) => {
-                let id: self::Id = id.into();
+                let id = MetaId::from(id);
                 let expr = scope.find(&id, Types::all())?;
                 JumpTarget::Direct(expr)
             }
@@ -750,8 +682,8 @@ pub enum TransferKind {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Macro {
-    pub id: Id,
-    pub args: Vec<Id>,
+    pub id: MetaId,
+    pub args: Vec<MetaId>,
     pub body: Vec<ExprPtr>,
     pub scope: Scope,
 }
@@ -774,7 +706,7 @@ impl Macro {
             .into_iter()
             .map(|stmt| Expr::lift_stmt(&mut local_scope, stmt))
             .collect();
-        let id: Id = r#macro.id.into();
+        let id: MetaId = r#macro.id.into();
         let span = id.span();
         let r#macro = Macro {
             id,
@@ -837,7 +769,7 @@ impl<'a> TryFrom<&'a mut Expr> for &'a mut Macro {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Scanner {
-    pub id: Id,
+    pub id: MetaId,
     pub rules: Vec<ExprPtr>,
     pub is_instruction: bool,
 }
@@ -858,7 +790,7 @@ impl Scanner {
         scope: &mut Scope,
         ctr: ast::Constructor,
     ) -> Result<(), LiftError> {
-        let id: Id = ctr.id.into();
+        let id: MetaId = ctr.id.into();
         let span = id.span();
         let is_instruction = ctr.is_instruction;
         let result = scope.lookup(&id, Types::Scanner).ok();
@@ -905,7 +837,7 @@ type Pattern = Vec<ExprPtr>;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Rule {
-    pub id: Id,
+    pub id: MetaId,
     pub mnemonic: Vec<Output>,
     pub output: Vec<Output>,
     pub setup: Vec<ExprPtr>,
@@ -1013,7 +945,7 @@ impl Rule {
         // Insert augmented macro statements at the point of the macro call
         /*
         pub struct Macro {
-            pub id: Id,
+            pub id: MetaId,
             pub args: Vec<Id>,
             pub body: Vec<ExprPtr>,
             pub scope: Scope,
@@ -1031,7 +963,7 @@ impl Rule {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Output {
-    Text(Ident),
+    Text(Id),
     Expr(ExprPtr),
 }
 
@@ -1150,7 +1082,7 @@ impl Default for Architecture {
             register_maps: Vec::new(),
         };
         // const space
-        let region_id = Id::new(Ident::new("const"));
+        let region_id = MetaId::from("const");
         let region = MemoryRegion {
             id: region_id,
             kind: ast::SpaceKind::Rom,
@@ -1162,7 +1094,7 @@ impl Default for Architecture {
         let expr = ExprPtr::new(Expr::MemoryRegion(region), span);
         arch.scope.insert(region_id, expr, Types::MemoryRegion);
         INTRINSICS.iter().for_each(|name| {
-            let id = Id::new(Ident::new(name));
+            let id = MetaId::from(name);
             let intrinsic = Intrinsic { id };
             let expr = ExprPtr::new(Expr::Intrinsic(intrinsic), span);
             arch.scope.insert(id, expr, Types::Intrinsic);

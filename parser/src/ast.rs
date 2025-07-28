@@ -1,57 +1,10 @@
 use crate::error::*;
-use internment::Intern;
+use bebop_util::{id::*, meta::*};
 use lalrpop_util::ParseError;
 use lazy_static::lazy_static;
-use serde::{Serialize, Serializer};
+use serde::Serialize;
 use std::collections::HashMap;
-use std::{fmt, ops::Deref};
-
-use bebop_util::meta::*;
-
-#[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Ident(Intern<String>);
-
-impl fmt::Display for Ident {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl fmt::Debug for Ident {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "`{}`", self.0)
-    }
-}
-
-impl Ident {
-    pub fn new<S: ToString>(s: S) -> Self {
-        Self(Intern::new(s.to_string()))
-    }
-}
-
-impl Deref for Ident {
-    type Target = String;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl AsRef<String> for Ident {
-    fn as_ref(&self) -> &'static String {
-        self.0.as_ref()
-    }
-}
-
-impl Serialize for Ident {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let s = self.0;
-        s.serialize(serializer)
-    }
-}
+use std::fmt;
 
 enum Special {
     Big,
@@ -66,18 +19,18 @@ enum Special {
 }
 
 lazy_static! {
-    static ref SPECIAL: HashMap<Ident, Special> = {
+    static ref SPECIAL: HashMap<Id, Special> = {
         let mut m = HashMap::new();
         use Special::*;
-        m.insert(Ident::new("big"), Big);
-        m.insert(Ident::new("little"), Little);
-        m.insert(Ident::new("size"), Size);
-        m.insert(Ident::new("wordsize"), WordSize);
-        m.insert(Ident::new("default"), IsDefault);
-        m.insert(Ident::new("offset"), Offset);
-        m.insert(Ident::new("rom_space"), RomSpace);
-        m.insert(Ident::new("ram_space"), RamSpace);
-        m.insert(Ident::new("register_space"), RegisterSpace);
+        m.insert(Id::new("big"), Big);
+        m.insert(Id::new("little"), Little);
+        m.insert(Id::new("size"), Size);
+        m.insert(Id::new("wordsize"), WordSize);
+        m.insert(Id::new("default"), IsDefault);
+        m.insert(Id::new("offset"), Offset);
+        m.insert(Id::new("rom_space"), RomSpace);
+        m.insert(Id::new("ram_space"), RamSpace);
+        m.insert(Id::new("register_space"), RegisterSpace);
         m
     };
 }
@@ -89,7 +42,7 @@ pub enum Definition {
     Token(Token),
     Space(Space),
     Varnode(Loc<Varnode>),
-    PCodeOp(Loc<Ident>),
+    PCodeOp(LocId),
     VarnodeAttach(Loc<VarnodeAttach>),
     Constructor(Constructor),
     Macro(Macro),
@@ -111,11 +64,9 @@ impl fmt::Display for Endian {
 }
 
 impl Endian {
-    pub fn parse<'a>(
-        id: Loc<Ident>,
-    ) -> Result<Endian, LalrParseError<'a>> {
+    pub fn parse<'a>(id: LocId) -> Result<Endian, LalrParseError<'a>> {
         let span = id.span();
-        let id = Ident::new(id.value().to_lowercase());
+        let id = Id::new(id.id().to_lowercase());
         let error = ParseError::User {
             error: ParserError::InvalidToken(span),
         };
@@ -135,7 +86,7 @@ impl Endian {
 
 #[derive(Clone, PartialEq, Serialize)]
 pub struct Token {
-    pub id: Loc<Ident>,
+    pub id: LocId,
     pub bit_width: Loc<usize>,
     pub fields: Vec<Field>,
 }
@@ -148,7 +99,7 @@ pub enum FieldMod {
 
 #[derive(Clone, PartialEq, Serialize)]
 pub struct Field {
-    pub id: Loc<Ident>,
+    pub id: LocId,
     pub start_bit: Loc<usize>,
     pub end_bit: Loc<usize>,
     pub is_signed: bool,
@@ -157,7 +108,7 @@ pub struct Field {
 
 impl Field {
     pub fn new(
-        id: Loc<Ident>,
+        id: LocId,
         start_bit: Loc<usize>,
         end_bit: Loc<usize>,
         mods: Vec<FieldMod>,
@@ -188,11 +139,11 @@ pub enum SpaceMod {
 
 impl SpaceMod {
     pub fn parse<'a>(
-        id: Loc<Ident>,
+        id: LocId,
         num: Option<Loc<usize>>,
     ) -> Result<SpaceMod, LalrParseError<'a>> {
         let span = id.span();
-        let id = Ident::new(id.value().to_lowercase());
+        let id = Id::new(id.id().to_lowercase());
         let error = ParseError::User {
             error: ParserError::InvalidToken(span),
         };
@@ -211,7 +162,7 @@ impl SpaceMod {
 
 #[derive(Clone, PartialEq, Serialize)]
 pub struct Space {
-    pub id: Loc<Ident>,
+    pub id: LocId,
     pub kind: SpaceKind,
     pub size: Loc<usize>,
     pub word_size: Loc<usize>,
@@ -219,11 +170,7 @@ pub struct Space {
 }
 
 impl Space {
-    pub fn new(
-        id: Loc<Ident>,
-        kind: SpaceKind,
-        mods: Vec<SpaceMod>,
-    ) -> Self {
+    pub fn new(id: LocId, kind: SpaceKind, mods: Vec<SpaceMod>) -> Self {
         let this = Self {
             id,
             kind,
@@ -250,11 +197,9 @@ pub enum SpaceKind {
 }
 
 impl SpaceKind {
-    pub fn parse<'a>(
-        id: Loc<Ident>,
-    ) -> Result<SpaceKind, LalrParseError<'a>> {
+    pub fn parse<'a>(id: LocId) -> Result<SpaceKind, LalrParseError<'a>> {
         let span = id.span();
-        let id = Ident::new(id.value().to_lowercase());
+        let id = Id::new(id.id().to_lowercase());
         let error = ParseError::User {
             error: ParserError::InvalidToken(span),
         };
@@ -280,11 +225,11 @@ pub enum VarnodeMod {
 
 impl VarnodeMod {
     pub fn parse<'a>(
-        id: Loc<Ident>,
+        id: LocId,
         num: Loc<usize>,
     ) -> Result<VarnodeMod, LalrParseError<'a>> {
         let span = id.span();
-        let id = Ident::new(id.value().to_lowercase());
+        let id = Id::new(id.id().to_lowercase());
         let error = ParseError::User {
             error: ParserError::InvalidToken(span),
         };
@@ -304,11 +249,11 @@ impl VarnodeMod {
 pub struct Varnode {
     pub offset: Loc<usize>,
     pub byte_size: Loc<usize>,
-    pub ids: Vec<Loc<Ident>>,
+    pub ids: Vec<LocId>,
 }
 
 impl Varnode {
-    pub fn new(ids: Vec<Loc<Ident>>, mods: Vec<VarnodeMod>) -> Self {
+    pub fn new(ids: Vec<LocId>, mods: Vec<VarnodeMod>) -> Self {
         let this = Self {
             ids,
             byte_size: Loc::new(0, Span::default()),
@@ -326,13 +271,13 @@ impl Varnode {
 
 #[derive(Clone, PartialEq, Serialize)]
 pub struct VarnodeAttach {
-    pub fields: Vec<Loc<Ident>>,
-    pub registers: Vec<Loc<Ident>>,
+    pub fields: Vec<LocId>,
+    pub registers: Vec<LocId>,
 }
 
 #[derive(Clone, PartialEq, Serialize)]
 pub struct Constructor {
-    pub id: Loc<Ident>,
+    pub id: LocId,
     pub display: Display,
     pub pattern: Option<Expr>,
     pub context: Vec<Statement>,
@@ -348,16 +293,16 @@ pub struct Display {
 
 #[derive(Clone, PartialEq, Serialize)]
 pub enum DisplayPiece {
-    Id(Loc<Ident>),
-    Text(Ident),
+    Id(LocId),
+    Text(Id),
     Caret,
     Space,
 }
 
 #[derive(Clone, PartialEq, Serialize)]
 pub struct Macro {
-    pub id: Loc<Ident>,
-    pub args: Vec<Loc<Ident>>,
+    pub id: LocId,
+    pub args: Vec<LocId>,
     pub body: Vec<Statement>,
 }
 
@@ -374,11 +319,11 @@ pub enum Expr {
     },
     Paren(Box<Expr>),
     FunCall {
-        id: Loc<Ident>,
+        id: LocId,
         args: Vec<Box<Expr>>,
     },
     BitRange {
-        id: Loc<Ident>,
+        id: LocId,
         start_bit: Loc<usize>,
         bit_width: Loc<usize>,
     },
@@ -388,9 +333,9 @@ pub enum Expr {
     },
     Pointer {
         expr: Box<Expr>,
-        space: Option<Loc<Ident>>,
+        space: Option<LocId>,
     },
-    Id(Loc<Ident>),
+    Id(LocId),
     Int(Loc<usize>),
     Unit(Loc<()>),
 }
@@ -420,21 +365,21 @@ pub enum Statement {
     Call(JumpTarget),
     Return(JumpTarget),
     Branch { condition: Expr, target: JumpTarget },
-    FunCall { id: Loc<Ident>, args: Vec<Expr> },
+    FunCall { id: LocId, args: Vec<Expr> },
     Export(Expr),
-    Label(Loc<Ident>),
-    Build(Loc<Ident>),
+    Label(LocId),
+    Build(LocId),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum JumpTarget {
     Fixed {
         address: Loc<usize>,
-        space: Option<Loc<Ident>>,
+        space: Option<LocId>,
     },
-    Direct(Loc<Ident>),
+    Direct(LocId),
     Indirect(Expr),
-    Label(Loc<Ident>),
+    Label(LocId),
 }
 
 impl Spanned for JumpTarget {

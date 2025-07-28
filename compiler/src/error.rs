@@ -1,6 +1,6 @@
 use crate::hir::*;
 use bebop_parser::error::*;
-use bebop_util::meta::*;
+use bebop_util::{id::*, meta::*};
 use std::fmt;
 
 #[derive(Clone)]
@@ -10,13 +10,14 @@ pub enum TypeEnvError {
 
 #[derive(Clone)]
 pub enum LiftError {
-    Unknown(Id),
+    Unknown(MetaId),
     Invalid(Span),
     Duplicate(Span),
     TypeMismatch(Span),
     SizeMismatch { span: Span, want: usize, got: usize },
     MacroArgumentMismatch(Span),
     InternalTypeMismatch(Span),
+    MacroScopeMerge(Span),
     ParserError(ParserError),
 }
 
@@ -38,6 +39,9 @@ impl fmt::Debug for LiftError {
             Self::MacroArgumentMismatch(span) => {
                 write!(f, "Macro argument mismatch: {span:?}")
             }
+            Self::MacroScopeMerge(span) => {
+                write!(f, "Duplicate scope item found while expanding macro: {span:?}")
+            }
             Self::ParserError(e) => write!(f, "Parser error {e:?}"),
         }
     }
@@ -53,6 +57,7 @@ impl Spanned for LiftError {
             Self::SizeMismatch { span, .. } => *span,
             Self::InternalTypeMismatch(span) => *span,
             Self::MacroArgumentMismatch(span) => *span,
+            Self::MacroScopeMerge(span) => *span,
             Self::ParserError(e) => e.span(),
         }
     }
