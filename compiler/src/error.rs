@@ -1,5 +1,6 @@
-use bebop_parser::error::*;
-use bebop_util::{id::*, meta::*};
+use bebop_parser::error::ParserError;
+use bebop_util::id::MetaId;
+use bebop_util::meta::{Span, Spanned};
 use std::fmt;
 
 #[derive(Clone)]
@@ -14,6 +15,7 @@ pub enum Error {
     InternalTypeMismatch(Span),
     MacroScopeMerge(Span),
     Rename(Span),
+    VariableLengthPattern(Span),
 }
 
 impl fmt::Debug for Error {
@@ -44,6 +46,12 @@ impl fmt::Debug for Error {
             Self::Rename(span) => {
                 write!(f, "Internal rename error: {span:?}")
             }
+            Self::VariableLengthPattern(span) => {
+                write!(
+                    f,
+                    "Variable-length instructions unsupported: {span:?}"
+                )
+            }
         }
     }
 }
@@ -61,6 +69,7 @@ impl Spanned for Error {
             Self::MacroArgumentMismatch(span) => *span,
             Self::MacroScopeMerge(span) => *span,
             Self::Rename(span) => *span,
+            Self::VariableLengthPattern(span) => *span,
         }
     }
 }

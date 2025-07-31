@@ -9,7 +9,7 @@ lalrpop_mod!(
     #[allow(clippy::all)]
     #[allow(unused_parens)]
     #[allow(unused_imports)]
-    pub grammar, "/grammar.rs");
+    pub grammar, "/parser/grammar.rs");
 
 pub struct ParserEx<T, U> {
     parser: T,

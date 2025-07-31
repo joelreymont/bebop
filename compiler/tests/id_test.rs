@@ -1,5 +1,5 @@
-use bebop_util::id::*;
-use insta::*;
+use bebop_util::id::{Id, MetaId};
+use insta::assert_ron_snapshot;
 
 #[test]
 fn test_rename() {

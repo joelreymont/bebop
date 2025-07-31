@@ -1,5 +1,5 @@
-use crate::lexer::*;
-use bebop_util::meta::*;
+use crate::lexer::Token;
+use bebop_util::meta::{Span, Spanned};
 use lalrpop_util::ParseError as LalrpopError;
 use thiserror::Error;
 

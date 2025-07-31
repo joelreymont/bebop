@@ -52,7 +52,7 @@ fn test_expand() -> Result<(), Error> {
                     MetaId("a"),
                     MetaId("b"),
                   ],
-                  body: [
+                  actions: [
                     Bind(
                       lhs: Variable(Variable(
                         id: MetaId("dst_"),
@@ -150,7 +150,7 @@ fn test_expand() -> Result<(), Error> {
                     MetaId("a"),
                     MetaId("b"),
                   ],
-                  body: [
+                  actions: [
                     Bind(
                       lhs: Variable(Variable(
                         id: MetaId("dst_"),

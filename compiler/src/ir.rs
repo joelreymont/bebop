@@ -1,10 +1,10 @@
-use crate::env::*;
+use crate::env::{Env, Kind};
 use crate::error::Error;
 use bebop_parser::ast;
-use bebop_util::{id::*, meta::*};
+use bebop_util::id::{Hint, Id, LocId, MetaId};
+use bebop_util::meta::{Loc, Span, Spanned};
 use serde::{Serialize, Serializer};
 use std::cell::RefCell;
-use std::option::Option::*;
 use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -59,6 +59,10 @@ impl ExprPtr {
                 ptr
             })
         })
+    }
+
+    pub fn find_scanners(&mut self, env: &mut Env) -> Result<(), Error> {
+        self.apply_mut(|x| x.find_scanners(env))
     }
 }
 
@@ -501,6 +505,50 @@ impl Expr {
             _ => {}
         }
     }
+
+    pub fn find_scanners(&mut self, env: &mut Env) -> Result<(), Error> {
+        use Expr::*;
+        match self {
+            Binary { lhs, rhs, .. } => {
+                lhs.find_scanners(env)?;
+                rhs.find_scanners(env)?;
+            }
+            Unary { rhs, .. } => rhs.find_scanners(env)?,
+            Paren(expr) => expr.find_scanners(env)?,
+            Pointer { expr, .. } => expr.find_scanners(env)?,
+            TakeBits { expr, .. } => expr.find_scanners(env)?,
+            TakeBytes { expr, .. } => expr.find_scanners(env)?,
+            FunCall { args, .. } => {
+                for arg in args {
+                    arg.find_scanners(env)?;
+                }
+            }
+            Bind { lhs, rhs } => {
+                lhs.find_scanners(env)?;
+                rhs.find_scanners(env)?;
+            }
+            MacroCall(call) => {
+                for arg in &mut call.args {
+                    arg.find_scanners(env)?;
+                }
+            }
+            Transfer(xfer) => xfer.find_scanners(env)?,
+            Branch { condition, target } => {
+                condition.find_scanners(env)?;
+                target.find_scanners(env)?;
+            }
+            Export(expr) => expr.find_scanners(env)?,
+            Build(expr) => {
+                let id = expr.apply(|x| {
+                    let scanner: &self::Scanner = x.try_into()?;
+                    Ok(scanner.id)
+                })?;
+                env.insert(id, expr.clone(), Kind::Scanner);
+            }
+            _ => {}
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -820,6 +868,16 @@ impl JumpTarget {
             _ => {}
         }
     }
+
+    pub fn find_scanners(&mut self, env: &mut Env) -> Result<(), Error> {
+        use JumpTarget::*;
+        match self {
+            Direct(expr) => expr.find_scanners(env)?,
+            Indirect(expr) => expr.find_scanners(env)?,
+            _ => {}
+        }
+        Ok(())
+    }
 }
 
 impl Spanned for JumpTarget {
@@ -865,6 +923,10 @@ impl Transfer {
             target: self.target.deepcopy(env),
         }
     }
+
+    pub fn find_scanners(&mut self, env: &mut Env) -> Result<(), Error> {
+        self.target.find_scanners(env)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -878,7 +940,7 @@ pub enum TransferKind {
 pub struct Macro {
     pub id: MetaId,
     pub args: Vec<MetaId>,
-    pub body: Vec<ExprPtr>,
+    pub actions: Vec<ExprPtr>,
     pub env: Env,
 }
 
@@ -892,7 +954,7 @@ impl Macro {
             let expr = ExprPtr::new(expr, id.span());
             local_env.insert(id, expr, Kind::Variable);
         });
-        let body: Result<Vec<ExprPtr>, _> = r#macro
+        let actions: Result<Vec<ExprPtr>, _> = r#macro
             .body
             .into_iter()
             .map(|stmt| Expr::lift_stmt(&mut local_env, stmt))
@@ -902,7 +964,7 @@ impl Macro {
         let r#macro = Macro {
             id,
             args,
-            body: body?,
+            actions: actions?,
             env: local_env,
         };
         let expr = ExprPtr::new(Expr::Macro(r#macro), span);
@@ -924,7 +986,7 @@ impl Macro {
         }
         let mut actions = Vec::new();
         let mut env = Env::default();
-        for action in self.body.iter_mut() {
+        for action in &mut self.actions {
             let mut action =
                 action.apply_mut(|expr| expr.deepcopy(&mut env));
             for (name, value) in self.args.iter().zip(args.iter()) {
@@ -1054,7 +1116,7 @@ impl Scanner {
     }
 
     pub fn macroexpand(&mut self) -> Result<(), Error> {
-        for expr in self.rules.iter_mut() {
+        for expr in &mut self.rules {
             expr.apply_mut(|expr| {
                 let rule: &mut Rule = expr.try_into()?;
                 rule.macroexpand()?;
@@ -1063,9 +1125,26 @@ impl Scanner {
         }
         Ok(())
     }
-}
 
-type Pattern = Vec<ExprPtr>;
+    pub fn inline_scanners(&mut self) -> Result<(), Error> {
+        let mut new_rules = Vec::new();
+        for expr in &mut self.rules {
+            expr.apply_mut(|expr| {
+                let rule: &mut Rule = expr.try_into()?;
+                rule.inline_scanners(&mut new_rules)?;
+                Ok(())
+            })?;
+        }
+        self.rules = new_rules
+            .into_iter()
+            .map(|rule| {
+                let span = rule.id.span();
+                ExprPtr::new(Expr::Rule(rule), span)
+            })
+            .collect();
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Rule {
@@ -1074,7 +1153,7 @@ pub struct Rule {
     pub output: Vec<Output>,
     pub setup: Vec<ExprPtr>,
     pub actions: Vec<ExprPtr>,
-    pub pattern: Pattern,
+    pub pattern: Option<ExprPtr>,
     pub env: Env,
 }
 
@@ -1146,37 +1225,32 @@ impl Rule {
         Ok(rule)
     }
 
-    fn lift_pat_expr(
-        env: &Env,
-        acc: &mut Pattern,
-        expr: ast::Expr,
-    ) -> Result<(), Error> {
+    fn lift_pat_expr(env: &Env, expr: ast::Expr) -> LiftResult {
         use ast::Expr::*;
         match expr {
-            Binary { op, lhs, rhs }
+            Binary { ref op, .. }
                 if op.value() == &ast::BinaryOp::JOIN =>
+            {
+                // TODO: Fix this!
+                return Err(Error::VariableLengthPattern(expr.span()));
+            }
+            /*
             {
                 let lhs = Expr::lift(env, &lhs)?;
                 let rhs = Expr::lift(env, &rhs)?;
                 acc.push(lhs);
                 acc.push(rhs);
             }
-            expr => {
-                let expr = Expr::lift(env, &expr)?;
-                acc.push(expr);
-            }
+            */
+            expr => Expr::lift(env, &expr),
         }
-        Ok(())
     }
 
     fn lift_pattern(
         env: &Env,
         expr: Option<ast::Expr>,
-    ) -> Result<Pattern, Error> {
-        let mut pattern = Vec::new();
-        expr.map(|expr| Self::lift_pat_expr(env, &mut pattern, expr))
-            .transpose()?;
-        Ok(pattern)
+    ) -> Result<Option<ExprPtr>, Error> {
+        expr.map(|expr| Self::lift_pat_expr(env, expr)).transpose()
     }
 
     pub fn macroexpand(&mut self) -> Result<(), Error> {
@@ -1201,7 +1275,7 @@ impl Rule {
         let mut items = result?;
         for (_, actions) in &mut items {
             let mut env = self.env.empty();
-            for expr in actions.iter_mut() {
+            for expr in actions {
                 env.import(expr)?;
             }
             env.make_unique()?;
@@ -1213,6 +1287,149 @@ impl Rule {
             added_count += actions.len() - 1;
             self.actions.splice(ix..ix + 1, actions.into_iter());
         }
+        Ok(())
+    }
+
+    pub fn find_scanners(&mut self) -> Result<Env, Error> {
+        let mut env = Env::default();
+        for out in &mut self.output {
+            out.find_scanners(&mut env)?;
+        }
+        if let Some(pat) = &mut self.pattern {
+            pat.find_scanners(&mut env)?;
+        }
+        for action in &mut self.actions {
+            action.find_scanners(&mut env)?;
+        }
+        Ok(env)
+    }
+
+    pub fn inline_scanners(
+        &mut self,
+        acc: &mut Vec<Rule>,
+    ) -> Result<(), Error> {
+        // inline each scanner
+        self.find_scanners()?.apply_iter_mut(|iter| {
+            let mut rules = vec![self.clone()];
+            let scanners = iter
+                .filter(|(k, _)| *k.kind() == Kind::Scanner)
+                .map(|(_, v)| v.expr_mut());
+            for scanner_expr in scanners {
+                let scanner_expr1 = scanner_expr.clone();
+                scanner_expr.apply_mut(|x| {
+                    let scanner: &mut Scanner = x.try_into()?;
+                    // which may have several rules
+                    for scanner_rule in &mut scanner.rules {
+                        scanner_rule.apply_mut(|x| {
+                            let scanner_rule: &mut Rule = x.try_into()?;
+                            // we may get several new rules back, e.g.
+                            // if the scanner we are inlining itself has
+                            // multiple rules
+                            let mut new_rules = Vec::new();
+                            // so each subsequent scanner will iterate
+                            // over the rules we have collected so far
+                            for rule in &mut rules {
+                                rule.inline_rule(
+                                    &mut new_rules,
+                                    &scanner_expr1,
+                                    scanner_rule,
+                                )?;
+                            }
+                            // save new rules generated by inlining one scanner
+                            rules.extend(new_rules);
+                            Ok(())
+                        })?;
+                    }
+                    Ok(())
+                })?;
+            }
+            // save new rules generated by inlining all scanners
+            acc.extend(rules);
+            Ok(())
+        })
+    }
+
+    pub fn inline_rule(
+        &mut self,
+        _acc: &mut Vec<Rule>,
+        scanner: &ExprPtr,
+        scanner_rule: &Rule,
+    ) -> Result<(), Error> {
+        // inline mnemonic
+        let indices = self
+            .mnemonic
+            .iter()
+            .enumerate()
+            .filter(
+                |(_, out)| matches!(out, Output::Expr(x) if x == scanner),
+            )
+            .map(|(i, _)| i)
+            .collect::<Vec<_>>();
+        for i in indices {
+            self.mnemonic
+                .splice(i..i + 1, scanner_rule.mnemonic.clone());
+        }
+        // inline output
+        let indices = self
+            .output
+            .iter()
+            .enumerate()
+            .filter(
+                |(_, out)| matches!(out, Output::Expr(x) if x == scanner),
+            )
+            .map(|(i, _)| i)
+            .collect::<Vec<_>>();
+        for i in indices {
+            self.output.splice(i..i + 1, scanner_rule.output.clone());
+        }
+        // inline pattern
+        match (&mut self.pattern, &scanner_rule.pattern) {
+            (_, None) => {},
+            (None, Some(pat)) => self.pattern = Some(pat.clone()),
+            (Some(old), Some(new)) => {
+                old.apply_mut(|pat| {
+                    pat.splice(new, &|expr| {
+                        matches!(
+                            expr,
+                            Expr::Scanner(Scanner{ id,.. }) if id == &scanner_rule.id
+                        )
+                    });
+                })
+            },
+        }
+        // inline actions
+        // last statement -- export, use this as our splice value/
+        /*
+        let indices
+        for action in &mut self.actions {
+                old.apply_mut(|pat| {
+                    pat.splice(new, &|expr| {
+                        matches!(
+                            expr,
+                            Expr::Scanner(Scanner{ id,.. }) if id == &scanner_rule.id
+                        )
+                    });
+                })
+
+        }
+                if Some(old, new) = self.pattern.zip(scanner.rule) {
+                    pattern.splice(scanner.rule, &|expr| {
+                        matches!(
+                            expr,
+                            Expr::Variable(Variable { id }) if name == id
+                        )
+                    });
+                }
+                // pub actions: Vec<ExprPtr>,
+                // pub pattern: Pattern,
+                for pat in &mut self.pattern {
+                    pat.find_scanners(&mut env)?;
+                }
+                for action in &mut self.actions {
+                    action.find_scanners(&mut env)?;
+                }
+        */
+        // inline scanners in the resulting rule
         Ok(())
     }
 }
@@ -1239,6 +1456,13 @@ impl Output {
             }
         };
         Ok(out)
+    }
+
+    pub fn find_scanners(&mut self, env: &mut Env) -> Result<(), Error> {
+        if let Self::Expr(expr) = self {
+            expr.apply_mut(|x| x.find_scanners(env))?;
+        }
+        Ok(())
     }
 }
 
@@ -1320,6 +1544,22 @@ impl Architecture {
                 expr.apply_mut(|expr| {
                     let scanner: &mut Scanner = expr.try_into()?;
                     scanner.macroexpand()?;
+                    Ok(())
+                })?;
+            }
+            Ok(())
+        })
+    }
+
+    pub fn inline_scanners(&mut self) -> Result<(), Error> {
+        self.env.apply_iter_mut(|iter| {
+            let iter = iter
+                .filter(|(k, _)| *k.kind() == Kind::Scanner)
+                .map(|(_, v)| v.expr_mut());
+            for expr in iter {
+                expr.apply_mut(|expr| {
+                    let scanner: &mut Scanner = expr.try_into()?;
+                    scanner.inline_scanners()?;
                     Ok(())
                 })?;
             }
