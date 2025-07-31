@@ -320,7 +320,7 @@ fn test_lift_ctr_simple() -> Result<(), Error> {
                     ],
                     setup: [],
                     actions: [],
-                    pattern: [],
+                    pattern: None,
                     env: Env(
                       env: TypeMap(
                         inner: {},
@@ -342,7 +342,7 @@ fn test_lift_ctr_simple() -> Result<(), Error> {
                     ],
                     setup: [],
                     actions: [],
-                    pattern: [],
+                    pattern: None,
                     env: Env(
                       env: TypeMap(
                         inner: {},
@@ -489,7 +489,7 @@ fn test_lift_macro() -> Result<(), Error> {
                   MetaId("a"),
                   MetaId("b"),
                 ],
-                body: [
+                actions: [
                   Bind(
                     lhs: Variable(Variable(
                       id: MetaId("dst_3"),

@@ -1,4 +1,4 @@
-use crate::meta::*;
+use crate::meta::{Loc, Span, Spanned, Tagged};
 use core::sync::atomic::{self, AtomicUsize};
 use internment::Intern;
 use serde::{Serialize, Serializer};

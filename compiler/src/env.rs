@@ -1,13 +1,15 @@
 use crate::error::Error;
-use crate::ir::*;
+use crate::ir::{
+    Expr, ExprPtr, JumpTarget, LiftResult, Transfer, Variable,
+};
 use bebop_parser::ast;
-use bebop_util::{id::*, meta::*};
+use bebop_util::id::{Id, MetaId};
+use bebop_util::meta::Spanned;
 use bitflags::bitflags;
 use core::hash::Hash;
 use ordermap::map::{Iter, IterMut, OrderMap};
 use serde::{Serialize, Serializer};
 use std::cell::RefCell;
-use std::option::Option::*;
 
 use std::rc::Rc;
 
@@ -349,7 +351,7 @@ impl Env {
                 expr.apply_mut(|x| self.import_expr(x, &mut expr1))?
             }
             Expr::FunCall { args, .. } => {
-                for arg in args.iter_mut() {
+                for arg in args {
                     let mut arg1 = arg.clone();
                     arg.apply_mut(|x| self.import_expr(x, &mut arg1))?;
                 }

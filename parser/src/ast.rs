@@ -1,5 +1,6 @@
-use crate::error::*;
-use bebop_util::{id::*, meta::*};
+use crate::error::{LalrParseError, ParserError};
+use bebop_util::id::{Id, LocId};
+use bebop_util::meta::{Loc, Span, Spanned};
 use lalrpop_util::ParseError;
 use lazy_static::lazy_static;
 use serde::Serialize;
